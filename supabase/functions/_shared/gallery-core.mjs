@@ -129,8 +129,8 @@ export function createStore(db) {
     if(action==='work') {
       if(!uuid(p.id)) fail('Некорректная работа');
       const item=await work(p.id,userId,p.revision_id);
-      const commentRows=await rows(db,'select * from comments where work_id=$1 order by created_at asc limit 200',[p.id]);
-      const comments=[]; for(const c of commentRows) comments.push({id:c.id,work_id:c.work_id,body:c.body,created_at:iso(c.created_at),author:await profile(c.author_id,userId)});
+      const commentRows=await rows(db,'select c.id,c.work_id,c.body,c.created_at,u.id as author_id,u.username,u.display_name,u.bio from comments c join users u on u.id=c.author_id where c.work_id=$1 order by c.created_at asc limit 200',[p.id]);
+      const comments=commentRows.map(c=>({id:c.id,work_id:c.work_id,body:c.body,created_at:iso(c.created_at),author:{id:c.author_id,username:c.username,display_name:c.display_name,bio:c.bio}}));
       const revs=(await rows(db,'select id,created_at from revisions where work_id=$1 order by created_at desc',[p.id])).map(r=>({id:r.id,created_at:iso(r.created_at)}));
       let parent=null;
       if(item.revision.parent_revision_id){const pr=await one(db,'select r.work_id,r.id as revision_id,w.title,w.author_id from revisions r join works w on w.id=r.work_id where r.id=$1',[item.revision.parent_revision_id]);if(pr&&await canRead(await one(db,'select * from works where id=$1',[pr.work_id]),userId))parent={work_id:pr.work_id,revision_id:pr.revision_id,title:pr.title,author:(await profile(pr.author_id,userId)).display_name};}
@@ -154,7 +154,10 @@ export function createStore(db) {
       if(typeof p.code!=='string'||p.code.length<20||p.code.length>50000||!p.code.includes('mainImage')) fail('Некорректный исходник');
       if(!['MIT','CC0-1.0'].includes(p.license)) fail('Выберите лицензию');
       validateParameters(p.parameters);
-      if(p.preview!=null && (typeof p.preview!=='string'||p.preview.length>400000||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(p.preview))) fail('Превью должно быть PNG до 400 КБ');
+      if(p.preview!=null){
+        const format=typeof p.preview==='string'&&p.preview.match(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/)?.[1];
+        if(!format||p.preview.length>(format==='png'?400000:32000))fail('Некорректное превью: PNG до 400 КБ, JPEG или WebP до 32 КБ');
+      }
       const fingerprint=hash(JSON.stringify(p));
       return db.transaction(async tx=>{
         const prior=await one(tx,'select * from publish_requests where user_id=$1 and request_id=$2',[userId,p.request_id]);

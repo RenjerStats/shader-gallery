@@ -160,7 +160,8 @@ label input, label select, label textarea { font-weight: 400; }
 .profile-form { max-width: 650px; }
 .draft-list { display: flex; flex-direction: column; gap: 9px; margin-bottom: 35px; }
 .draft-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
-.draft-row > div:first-child { display: flex; flex: 1; flex-direction: column; gap: 4px; }
+.draft-row > div { display: flex; flex: 1; flex-direction: column; gap: 4px; }
+.draft-thumb { width: 64px; height: 64px; flex: none; border-radius: 8px; object-fit: cover; background: #e7e8dd; }
 .draft-row span { color: #85887f; font-size: .75rem; }
 
 footer { display: flex; justify-content: space-between; gap: 20px; padding: 32px max(44px, calc((100vw - 1392px) / 2)); border-top: 1px solid var(--line); color: #85887f; font-size: .74rem; }
@@ -253,7 +254,7 @@ footer p { margin: 5px 0 0; }
   .profile-head > div:nth-child(2) { min-width: calc(100% - 92px); }
   .avatar { width: 64px; height: 64px; font-size: 2rem; }
   .draft-row { flex-wrap: wrap; }
-  .draft-row > div:first-child { min-width: 100%; }
+  .draft-row > div { min-width: 100%; }
   footer { flex-direction: column; padding: 27px 16px; }
 }
 @media (max-width: 390px) {

@@ -30,6 +30,7 @@ internal class GalleryIcon(private val name:String,color:Int):Drawable(){
             "play"->{path.moveTo(8f,4f);path.lineTo(20f,12f);path.lineTo(8f,20f);path.close()}
             "reset"->{canvas.drawArc(5f,5f,20f,20f,-90f,290f,false,paint);path.moveTo(4f,4f);path.lineTo(4f,10f);path.lineTo(10f,10f)}
             "more"->{paint.style=Paint.Style.FILL;listOf(5f,12f,19f).forEach {canvas.drawCircle(12f,it,1.5f,paint)}}
+            "account"->{canvas.drawCircle(12f,8f,3.25f,paint);canvas.drawArc(4f,13f,20f,22f,195f,150f,false,paint)}
         }
         canvas.drawPath(path,paint);canvas.restore()
     }

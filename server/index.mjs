@@ -57,11 +57,11 @@ const server=http.createServer(async(req,res)=>{
       json(res,404,{error:'Не найдено'});return;
     }
     if(url.pathname.startsWith('/og/')){
-      const id=url.pathname.slice(4).replace(/\.png$/,'');
+      const id=url.pathname.slice(4).replace(/\.(png|jpg|webp)$/,'');
       const revision=url.searchParams.get('revision');
       const detail=await store.rpc(null,'work',{id,revision_id:revision||undefined});
       const preview=detail.work.revision.preview;
-      if(preview){res.writeHead(200,{'content-type':'image/png','cache-control':'public, max-age=300'});res.end(Buffer.from(preview.split(',')[1],'base64'));return;}
+      if(preview){res.writeHead(200,{'content-type':preview.startsWith('data:image/webp;')?'image/webp':preview.startsWith('data:image/jpeg;')?'image/jpeg':'image/png','cache-control':'public, max-age=300'});res.end(Buffer.from(preview.split(',')[1],'base64'));return;}
       const fallback=await readFile(production?'build/hero-opal-ribbon.png':'apps/web/public/hero-opal-ribbon.png');
       res.writeHead(200,{'content-type':'image/png','cache-control':'public, max-age=300'});res.end(fallback);return;
     }
@@ -73,7 +73,7 @@ const server=http.createServer(async(req,res)=>{
       if(extname(file)==='.html'){
         let html=await readFile(join(root,'index.html'),'utf8');
         const match=url.pathname.match(/^\/works\/([0-9a-f-]{36})$/i);
-        if(match){try{const revision=url.searchParams.get('revision');const d=await store.rpc(null,'work',{id:match[1],revision_id:revision||undefined});const title=`${d.work.title} — Shader Gallery`;const description=d.work.description||'Живое цифровое искусство';const imageUrl=`${origin(req)}/og/${d.work.id}.png?revision=${d.work.revision.id}`;html=html.replace('</head>',`<meta property="og:type" content="article"><meta property="og:url" content="${esc(origin(req)+url.pathname+url.search)}"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(description)}"><meta property="og:image" content="${esc(imageUrl)}"></head>`);}catch{}}
+        if(match){try{const revision=url.searchParams.get('revision');const d=await store.rpc(null,'work',{id:match[1],revision_id:revision||undefined});const title=`${d.work.title} — Shader Gallery`;const description=d.work.description||'Живое цифровое искусство';const extension=d.work.revision.preview?.startsWith('data:image/webp;')?'webp':d.work.revision.preview?.startsWith('data:image/jpeg;')?'jpg':'png';const imageUrl=`${origin(req)}/og/${d.work.id}.${extension}?revision=${d.work.revision.id}`;html=html.replace('</head>',`<meta property="og:type" content="article"><meta property="og:url" content="${esc(origin(req)+url.pathname+url.search)}"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(description)}"><meta property="og:image" content="${esc(imageUrl)}"></head>`);}catch{}}
         res.writeHead(200,{'content-type':'text/html; charset=utf-8'});res.end(html);return;
       }
       try{const content=await readFile(file);res.writeHead(200,{'content-type':mime[extname(file)]||'application/octet-stream'});res.end(content);}catch{res.writeHead(404);res.end();}return;

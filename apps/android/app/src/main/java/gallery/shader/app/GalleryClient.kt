@@ -30,7 +30,7 @@ data class GalleryCard(
                 json.getJSONObject("author").getString("display_name"),
                 json.getString("category"),
                 UUID.fromString(revision.getString("id")).toString(),
-                revision.optString("preview").takeIf { it.startsWith("data:image/png;base64,") && it.length<=400_000 }
+                revision.optString("preview").takeIf { (it.startsWith("data:image/png;base64,") || it.startsWith("data:image/jpeg;base64,") || it.startsWith("data:image/webp;base64,")) && it.length<=400_000 }
             )
         }
     }
@@ -49,6 +49,8 @@ data class GalleryCard(
 }
 
 data class GalleryPage(val items:List<GalleryCard>,val nextCursor:JSONObject?)
+
+private class GalleryHttpException(val status:Int,message:String):Exception(message)
 
 object GalleryClient {
     const val SITE="https://renjerstats.github.io/shader-gallery"
@@ -74,7 +76,7 @@ object GalleryClient {
         val connection=URL(CLOUD+path).openConnection() as HttpURLConnection
         connection.instanceFollowRedirects=false
         connection.requestMethod=if(body==null)"GET" else "POST"
-        connection.connectTimeout=10000;connection.readTimeout=10000
+        connection.connectTimeout=15000;connection.readTimeout=25000
         connection.setRequestProperty("apikey",KEY)
         if(access!=null)connection.setRequestProperty("Authorization","Bearer $access")
         if(body!=null){connection.doOutput=true;connection.setRequestProperty("Content-Type","application/json; charset=utf-8")}
@@ -88,7 +90,7 @@ object GalleryClient {
             }
             require(output.size()<=6_000_000) { "Ответ галереи слишком большой" }
             val response=try{JSONObject(output.toString("UTF-8"))}catch(_:Exception){JSONObject()}
-            require(code in 200..299) {response.optString("msg").ifBlank {response.optString("error_description").ifBlank {response.optString("error","Галерея недоступна: $code")}}}
+            if(code !in 200..299)throw GalleryHttpException(code,response.optString("msg").ifBlank {response.optString("error_description").ifBlank {response.optString("error","Галерея недоступна: $code")}})
             require(!response.has("error")) {response.optString("error")}
             return response
         } finally {connection.disconnect()}
@@ -101,7 +103,7 @@ object GalleryClient {
                 val refreshed=cloudRequest("/auth/v1/token?grant_type=refresh_token",JSONObject().put("refresh_token",session.getString("refresh_token")))
                 CloudAuth.save(context,refreshed)
                 session=CloudAuth.read(context) ?: return null
-            } catch(e:Exception){CloudAuth.clear(context);throw e}
+            } catch(e:Exception){if(e is GalleryHttpException && e.status in listOf(400,401,403))CloudAuth.clear(context);throw e}
         }
         return session.getString("access_token")
     }
@@ -135,8 +137,8 @@ object GalleryClient {
         val connection=URL(base(source)+path).openConnection() as HttpURLConnection
         connection.instanceFollowRedirects=false
         connection.requestMethod=if(body==null)"GET" else "POST"
-        connection.connectTimeout=8000
-        connection.readTimeout=8000
+        connection.connectTimeout=15000
+        connection.readTimeout=25000
         cookie(context,source)?.let {connection.setRequestProperty("Cookie",it)}
         if(body!=null){connection.doOutput=true;connection.setRequestProperty("Content-Type","application/json; charset=utf-8")}
         try {
@@ -169,7 +171,7 @@ object GalleryClient {
         if(!isCloud(source))return request(context,source,"/api/auth/session").optJSONObject("data")?.optString("id")
         val token=access(context) ?: return null
         return try {cloudRequest("/auth/v1/user",access=token).getString("id")}
-        catch(e:Exception){CloudAuth.clear(context);throw e}
+        catch(e:Exception){if(e is GalleryHttpException && e.status in listOf(400,401,403))CloudAuth.clear(context);throw e}
     }
     fun signIn(context:Context,source:String,email:String,password:String):String {
         if(!isCloud(source))return request(context,source,"/api/auth/login",JSONObject().put("email",email).put("password",password)).getJSONObject("data").getString("id")
@@ -192,7 +194,7 @@ object GalleryClient {
 
     fun feed(context:Context,source:String,mode:String,query:String,category:String,cursor:JSONObject?):GalleryPage {
         require(mode in listOf("new","curated","following","saved"))
-        val payload=JSONObject().put("mode",mode).put("limit",12)
+        val payload=JSONObject().put("mode",mode).put("limit",8)
         if(query.isNotBlank())payload.put("query",query.trim().take(100))
         if(category.isNotBlank())payload.put("category",category)
         if(cursor!=null)payload.put("cursor",cursor)

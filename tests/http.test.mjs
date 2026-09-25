@@ -49,6 +49,25 @@ test('HTTP auth, public package and OG metadata work together',async()=>{
     const fallback=await fetch(`${url}/og/${ids.work_id}.png`);
     assert.equal(fallback.status,200);
     assert.match(fallback.headers.get('content-type'),/image\/png/);
+    const jpeg='data:image/jpeg;base64,/9j/2Q==';
+    const jpegVersion=await fetch(`${url}/api/rpc`,{method:'POST',headers:{'content-type':'application/json',cookie},body:JSON.stringify({action:'publish',payload:{...payload,request_id:randomUUID(),work_id:ids.work_id,base_revision_id:(await updated.json()).data.revision_id,code:payload.code+'\n// jpeg',preview:jpeg}})});
+    assert.equal(jpegVersion.status,200);
+    const jpegId=(await jpegVersion.json()).data.revision_id;
+    const jpegPage=await fetch(`${url}/works/${ids.work_id}?revision=${jpegId}`);
+    assert.match(await jpegPage.text(),new RegExp(`/og/${ids.work_id}\\.jpg\\?revision=${jpegId}`));
+    const jpegImage=await fetch(`${url}/og/${ids.work_id}.jpg?revision=${jpegId}`);
+    assert.equal(jpegImage.headers.get('content-type'),'image/jpeg');
+    assert.deepEqual(Buffer.from(await jpegImage.arrayBuffer()),Buffer.from(jpeg.split(',')[1],'base64'));
+    const webp='data:image/webp;base64,UklGRg==';
+    const webpVersion=await fetch(`${url}/api/rpc`,{method:'POST',headers:{'content-type':'application/json',cookie},body:JSON.stringify({action:'publish',payload:{...payload,request_id:randomUUID(),work_id:ids.work_id,base_revision_id:jpegId,code:payload.code+'\n// webp',preview:webp}})});
+    assert.equal(webpVersion.status,200);
+    const webpId=(await webpVersion.json()).data.revision_id;
+    const webpPage=await fetch(`${url}/works/${ids.work_id}?revision=${webpId}`);
+    assert.match(await webpPage.text(),new RegExp(`/og/${ids.work_id}\\.webp\\?revision=${webpId}`));
+    const webpImage=await fetch(`${url}/og/${ids.work_id}.webp?revision=${webpId}`);
+    assert.equal(webpImage.headers.get('content-type'),'image/webp');
+    const oversized=await fetch(`${url}/api/rpc`,{method:'POST',headers:{'content-type':'application/json',cookie},body:JSON.stringify({action:'publish',payload:{...payload,request_id:randomUUID(),preview:'data:image/webp;base64,'+'A'.repeat(32_000)}})});
+    assert.equal(oversized.status,400);
     const anon=await fetch(`${url}/api/rpc`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'draft_list',payload:{}})});
     assert.equal(anon.status,400);
   }finally{child.kill();await rm(dir,{recursive:true,force:true})}

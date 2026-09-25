@@ -53,7 +53,24 @@ export class ShaderRenderer {
   }
   setValues(values:Record<string,number|string>){this.values={...this.values,...values};this.draw();}
   setPaused(paused:boolean){this.userPaused=paused;this.last=performance.now();this.schedule();if(paused)this.draw();}
-  snapshot(){this.draw();return this.canvas.toDataURL('image/png');}
+  snapshot(){
+    if(!this.program||this.disposed)return undefined;
+    this.draw();
+    const preview=document.createElement('canvas');
+    const context=preview.getContext('2d');
+    if(!context)return undefined;
+    for(const [edge,quality] of [[256,.68],[192,.55],[160,.42]]){
+      const ratio=Math.min(1,edge/Math.max(this.canvas.width,this.canvas.height));
+      preview.width=Math.max(1,Math.round(this.canvas.width*ratio));
+      preview.height=Math.max(1,Math.round(this.canvas.height*ratio));
+      context.drawImage(this.canvas,0,0,preview.width,preview.height);
+      const images=['image/webp','image/jpeg','image/png'].map(type=>preview.toDataURL(type,quality))
+        .filter(image=>/^data:image\/(?:webp|jpeg|png);base64,/.test(image))
+        .sort((a,b)=>a.length-b.length);
+      if(images[0]&&images[0].length<=24_000)return images[0];
+    }
+    return undefined;
+  }
   private schedule(){cancelAnimationFrame(this.raf);if(!this.disposed&&!this.hidden&&!this.userPaused&&this.program)this.raf=requestAnimationFrame(this.tick);}
   private readonly tick=(now:number)=>{this.elapsed+=(now-this.last)/1000;this.last=now;this.draw();this.schedule();};
   private draw(){
