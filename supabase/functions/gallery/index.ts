@@ -1,6 +1,7 @@
 import postgres from 'npm:postgres@3.4.7';
 import {createClient} from 'npm:@supabase/supabase-js@2.57.4';
 import {createStore} from '../_shared/gallery-core.mjs';
+import {makePackage} from '../_shared/package.mjs';
 
 const dbUrl=Deno.env.get('SUPABASE_DB_URL');
 const supabaseUrl=Deno.env.get('SUPABASE_URL');
@@ -40,7 +41,10 @@ Deno.serve(async request=>{
       if(error||!data.user)return respond(401,{error:'Нужно войти в аккаунт'});
       userId=data.user.id;
     }
-    const data=await store.rpc(userId,body.action,body.payload);
+    const data=body.action==='package'
+      ?makePackage(await store.rpc(null,'work',{id:body.payload.id,revision_id:body.payload.revision_id}),
+        'https://renjerstats.github.io/shader-gallery')
+      :await store.rpc(userId,body.action,body.payload);
     return respond(200,{data});
   }catch(error){
     console.error('Gallery request failed',error);

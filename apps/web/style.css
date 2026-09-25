@@ -173,6 +173,16 @@ footer p { margin: 5px 0 0; }
 .modal form { margin-top: 23px; }
 .modal form input { width: 100%; }
 .switch { width: 100%; margin-top: 18px; text-align: center; }
+.auth-intro { color: var(--muted); margin: 4px 0 22px; font-size: .94rem; }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px; background: #f2f1eb; }
+.auth-tabs button { min-height: 40px; border: 0; border-radius: 9px; color: #62665e; background: transparent; font: inherit; cursor: pointer; }
+.auth-tabs button.selected { color: #242823; background: #fff; box-shadow: 0 1px 6px #22212018; font-weight: 700; }
+.modal .auth-tabs + form, .modal .auth-message + form { margin-top: 20px; }
+.auth-divider { display: flex; align-items: center; gap: 14px; margin: 19px 0; color: #8a8c85; font-size: .8rem; }
+.auth-divider::before, .auth-divider::after { content: ''; height: 1px; flex: 1; background: #e4e4dc; }
+.auth-google { border: 1px solid #d9dbd4; background: #fff; }
+.auth-footnote, .auth-message { margin: 16px 0 0; color: #62665e; font-size: .8rem; line-height: 1.45; }
+.auth-message { padding: 11px 13px; border-radius: 10px; background: #eef6e7; }
 
 @media (max-width: 1200px) {
   .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }

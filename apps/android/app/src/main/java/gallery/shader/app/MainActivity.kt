@@ -191,7 +191,9 @@ class MainActivity:Activity() {
         bottomBar=row().apply {visibility=View.GONE;setPadding(dp(20),dp(10),dp(20),dp(12))}
         apply=button("Установить обои",true){installWallpaper()}.apply {isEnabled=false}
         bottomBar.addView(apply,LinearLayout.LayoutParams(-1,dp(54)));shell.addView(bottomBar)
-        gallerySource=PackageStore.gallerySource(this) ?: if((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0)"http://127.0.0.1:4173" else null
+        val savedSource=PackageStore.gallerySource(this)
+        gallerySource=if(savedSource==null || savedSource=="http://127.0.0.1:4173")GalleryClient.SITE else savedSource
+        if(savedSource!=gallerySource)PackageStore.setGallerySource(this,GalleryClient.SITE)
         gallerySource?.let {address.setText(it)}
         PackageStore.selected(this)?.let {showPackage(it,false)}
         handleIntent(intent)
@@ -294,25 +296,56 @@ class MainActivity:Activity() {
         }.start()
     }
     private fun showAuthDialog(){
-        val source=gallerySource ?: try{GalleryClient.base(address.text.toString())}catch(e:Exception){status.text="Сначала укажите адрес галереи";return}
+        val source=gallerySource ?: GalleryClient.SITE
         gallerySource=source;PackageStore.setGallerySource(this,source)
-        val fields=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(8),dp(20),0)}
-        val email=EditText(this).apply {hint="Email";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;setSingleLine(true)}
-        val password=EditText(this).apply {hint="Пароль";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD;setSingleLine(true)}
-        val name=EditText(this).apply {hint="Имя для регистрации";setSingleLine(true)}
-        fields.addView(email);fields.addView(password);fields.addView(name)
-        AlertDialog.Builder(this).setTitle("Аккаунт Shader Gallery").setView(fields)
-            .setPositiveButton("Войти") { _,_ ->authenticate(source,email.text.toString(),password.text.toString(),null) }
-            .setNeutralButton("Регистрация") { _,_ ->authenticate(source,email.text.toString(),password.text.toString(),name.text.toString()) }
-            .setNegativeButton("Отмена",null).show()
+        val fields=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(8),dp(20),dp(12))}
+        val tabs=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
+        var signingUp=false
+        val email=EditText(this).apply {hint="Электронная почта";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;setSingleLine(true);setAutofillHints(View.AUTOFILL_HINT_EMAIL_ADDRESS)}
+        val password=EditText(this).apply {hint="Пароль";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD;setSingleLine(true);setAutofillHints(View.AUTOFILL_HINT_PASSWORD)}
+        val name=EditText(this).apply {hint="Имя";setSingleLine(true);visibility=View.GONE;setAutofillHints(View.AUTOFILL_HINT_NAME)}
+        lateinit var dialog:AlertDialog
+        val submit=button("Войти по почте",true){
+            val enteredName=if(signingUp)name.text.toString() else null
+            dialog.dismiss();authenticate(source,email.text.toString(),password.text.toString(),enteredName)
+        }
+        val loginTab=button("Вход"){}
+        val signupTab=button("Регистрация"){}
+        fun update(){
+            name.visibility=if(signingUp)View.VISIBLE else View.GONE
+            submit.text=if(signingUp)"Зарегистрироваться" else "Войти по почте"
+            loginTab.isSelected=!signingUp;signupTab.isSelected=signingUp
+            loginTab.setTextColor(if(signingUp)muted else blue)
+            signupTab.setTextColor(if(signingUp)blue else muted)
+        }
+        loginTab.setOnClickListener {signingUp=false;update()}
+        signupTab.setOnClickListener {signingUp=true;update()}
+        tabs.addView(loginTab,LinearLayout.LayoutParams(0,dp(48),1f))
+        tabs.addView(signupTab,LinearLayout.LayoutParams(0,dp(48),1f))
+        fields.addView(tabs);fields.addView(name);fields.addView(email);fields.addView(password)
+        fields.addView(submit,LinearLayout.LayoutParams(-1,dp(50)).apply {topMargin=dp(12)})
+        if(GalleryClient.isCloud(source)){
+            fields.addView(text("или",13f,muted).apply {gravity=Gravity.CENTER},LinearLayout.LayoutParams(-1,dp(42)))
+            fields.addView(button("Продолжить с Google"){
+                try {val target=GalleryClient.googleUrl(this);dialog.dismiss();startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(target)))}
+                catch(e:Exception){status.text=e.message ?: "Не удалось открыть Google"}
+            },LinearLayout.LayoutParams(-1,dp(50)))
+            fields.addView(text("При регистрации по почте подтвердите адрес по ссылке из письма.",12f,muted),LinearLayout.LayoutParams(-1,-2).apply {topMargin=dp(10)})
+        }
+        update()
+        dialog=AlertDialog.Builder(this).setTitle("Аккаунт Shader Gallery").setView(fields).setNegativeButton("Отмена",null).create()
+        dialog.show()
     }
     private fun authenticate(source:String,email:String,password:String,name:String?){
-        if(email.isBlank() || password.isBlank() || (name!=null && name.isBlank())){status.text="Заполните поля аккаунта";return}
-        authStatus.text="Входим…"
+        if(email.isBlank() || password.length<8 || (name!=null && name.isBlank())){status.text="Укажите почту и пароль от 8 символов";return}
+        authStatus.text=if(name==null)"Входим…" else "Регистрируем…"
         Thread {
             try {
                 val id=if(name==null)GalleryClient.signIn(this,source,email,password) else GalleryClient.signUp(this,source,email,password,name)
-                runOnUiThread {if(gallerySource==source){viewerId=id;authStatus.text=if(name==null)email else name;authButton.text="Выйти";loadGallery(false);current?.let{loadDetail(it)}}}
+                runOnUiThread {if(gallerySource==source){
+                    if(id==null){viewerId=null;authStatus.text="Гость";status.text="Проверьте почту и подтвердите регистрацию по ссылке из письма."}
+                    else {viewerId=id;authStatus.text=if(name==null)email else name;authButton.text="Выйти";status.text="";loadGallery(false);current?.let{loadDetail(it)}}
+                }}
             }catch(e:Exception){runOnUiThread{authStatus.text="Гость";status.text=e.message ?: "Не удалось войти"}}
         }.start()
     }
@@ -376,24 +409,40 @@ class MainActivity:Activity() {
     }
     private fun handleIntent(intent:Intent?){
         val uri=intent?.data ?: return
-        if(uri.scheme!="shadergallery" || uri.host!="work")return
-        val id=uri.pathSegments.firstOrNull() ?: return
-        val source=uri.getQueryParameter("source") ?: return
-        val revision=uri.getQueryParameter("revision")
-        address.setText(source)
-        load(source,id,revision)
+        if(uri.scheme=="shadergallery" && uri.host=="auth-callback"){
+            val code=uri.getQueryParameter("code")
+            val error=uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error")
+            if(code==null){status.text=error ?: "Не удалось завершить вход";return}
+            gallerySource=GalleryClient.SITE;PackageStore.setGallerySource(this,GalleryClient.SITE);address.setText(GalleryClient.SITE)
+            authStatus.text="Входим…"
+            Thread {
+                try {GalleryClient.completeGoogle(this,code);runOnUiThread {loadSession(GalleryClient.SITE);loadGallery(false)}}
+                catch(e:Exception){runOnUiThread {authStatus.text="Гость";status.text=e.message ?: "Не удалось завершить вход"}}
+            }.start()
+            return
+        }
+        if(uri.scheme=="shadergallery" && uri.host=="work"){
+            val id=uri.pathSegments.firstOrNull() ?: return
+            val source=uri.getQueryParameter("source")?.let{if(it=="https://renjerstats.github.io")GalleryClient.SITE else it} ?: return
+            load(source,id,uri.getQueryParameter("revision"));return
+        }
+        if(uri.scheme=="https" && uri.host=="renjerstats.github.io" && uri.pathSegments.size==3 && uri.pathSegments[0]=="shader-gallery" && uri.pathSegments[1]=="works"){
+            load(GalleryClient.SITE,uri.pathSegments[2],uri.getQueryParameter("revision"))
+        }
     }
     private fun loadFromAddress(){
         try {
             val url=URL(address.text.toString().trim());val uri=Uri.parse(url.toString())
-            val source=GalleryClient.base("${url.protocol}://${url.authority}")
-            if(uri.pathSegments.isEmpty() || uri.path=="/"){
+            val cloud=url.host.equals("renjerstats.github.io",true)
+            val source=GalleryClient.base(if(cloud)GalleryClient.SITE else "${url.protocol}://${url.authority}")
+            val segments=if(cloud){require(uri.pathSegments.firstOrNull()=="shader-gallery"){"Некорректная ссылка"};uri.pathSegments.drop(1)}else uri.pathSegments
+            if(segments.isEmpty()){
                 val changed=gallerySource!=source
                 gallerySource=source;PackageStore.setGallerySource(this,source);address.setText(source);if(changed)loadSession(source);loadGallery(false)
             }else{
-                require(uri.pathSegments.size==2 && uri.pathSegments[0]=="works") { "Укажите адрес галереи или ссылку /works/…" }
+                require(segments.size==2 && segments[0]=="works") { "Укажите адрес галереи или ссылку /works/…" }
                 address.setText(source)
-                load(source,uri.pathSegments[1],uri.getQueryParameter("revision"))
+                load(source,segments[1],uri.getQueryParameter("revision"))
             }
         }catch(e:Exception){status.text=e.message ?: "Некорректная ссылка"}
     }
@@ -407,7 +456,7 @@ class MainActivity:Activity() {
         workSaved=false;saveButton.isEnabled=false
         ready=false;apply.isEnabled=false;status.text="Загружаем работу…"
         Thread {
-            try {val shader=PackageClient.download(base,id,revision);runOnUiThread {if(request==loadGeneration){showPackage(shader,true);if(sourceChanged)loadGallery(false)}}}
+            try {val shader=PackageClient.download(this,base,id,revision);runOnUiThread {if(request==loadGeneration){showPackage(shader,true);if(sourceChanged)loadGallery(false)}}}
             catch(e:Exception){runOnUiThread{if(request==loadGeneration){ready=previousReady;apply.isEnabled=previousReady;saveButton.isEnabled=current!=null;status.text=e.message ?: "Не удалось открыть работу"}}}
         }.start()
     }

@@ -83,8 +83,16 @@ object PackageStore {
 }
 
 object PackageClient {
-    fun download(source:String,workId:String,revisionId:String?):ShaderPackage {
+    fun download(context:Context,source:String,workId:String,revisionId:String?):ShaderPackage {
         UUID.fromString(workId);if(revisionId!=null)UUID.fromString(revisionId)
+        if(GalleryClient.isCloud(source)) {
+            val payload=JSONObject().put("id",workId)
+            if(revisionId!=null)payload.put("revision_id",revisionId)
+            val raw=GalleryClient.rpc(context,source,"package",payload).toString()
+            val shader=ShaderPackage.parse(raw)
+            require(shader.workId==workId && (revisionId==null || shader.revisionId==revisionId)) { "Получена другая версия" }
+            return shader
+        }
         val base=URL(source.trimEnd('/'))
         require(base.protocol=="https" || (base.protocol=="http" && base.host=="127.0.0.1")) { "Нужен HTTPS-адрес галереи" }
         require(base.path.isEmpty() || base.path=="/") { "Некорректный адрес галереи" }
