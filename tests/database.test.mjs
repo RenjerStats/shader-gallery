@@ -60,6 +60,32 @@ test('publication is idempotent and drafts preserve conflicting edits',async()=>
   }finally{await s.close()}
 });
 
+test('published JSON fields stay structured and legacy string values remain readable',async()=>{
+  const s=await createDatabase({memory:true});
+  try{
+    const author=await s.addUser({email:'json@example.test'});
+    const published=await s.rpc(author.id,'publish',{...base,request_id:randomUUID()});
+    const revisionType=await s.db.query('select jsonb_typeof(parameters) as type from revisions where id=$1',[published.revision_id]);
+    assert.equal(revisionType.rows[0].type,'array');
+
+    const draftId=randomUUID();
+    const saved=await s.rpc(author.id,'draft_save',{id:draftId,expected_version:0,body:{title:'Черновик'}});
+    assert.deepEqual(saved.draft.body,{title:'Черновик'});
+    const draftType=await s.db.query('select jsonb_typeof(body) as type from drafts where id=$1',[draftId]);
+    assert.equal(draftType.rows[0].type,'object');
+
+    await s.db.query('update revisions set parameters=to_jsonb(parameters::text) where id=$1',[published.revision_id]);
+    await s.db.query('update drafts set body=to_jsonb(body::text) where id=$1',[draftId]);
+    assert.deepEqual((await s.rpc(null,'work',{id:published.work_id})).work.revision.parameters,base.parameters);
+    assert.deepEqual((await s.rpc(author.id,'draft_list'))[0].body,{title:'Черновик'});
+    await s.rpc(author.id,'preset',{revision_id:published.revision_id,values:{speed:1.5}});
+    const presetType=await s.db.query('select jsonb_typeof(vals) as type from presets where revision_id=$1',[published.revision_id]);
+    assert.equal(presetType.rows[0].type,'object');
+    await s.db.query('update presets set vals=to_jsonb(vals::text) where revision_id=$1',[published.revision_id]);
+    assert.deepEqual((await s.rpc(author.id,'work',{id:published.work_id})).preset,{speed:1.5});
+  }finally{await s.close()}
+});
+
 test('moderation hides public content and validates presets',async()=>{
   const s=await createDatabase({memory:true});
   try{

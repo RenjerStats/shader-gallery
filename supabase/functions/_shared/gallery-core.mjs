@@ -8,6 +8,16 @@ const clean = (v, max) => String(v ?? '').trim().slice(0, max + 1);
 const one = async (db, sql, args=[]) => (await db.query(sql,args)).rows[0] ?? null;
 const rows = async (db, sql, args=[]) => (await db.query(sql,args)).rows;
 const publicUser = (u) => u && ({id:u.id,email:u.email});
+const jsonArray = value => {
+  const parsed=typeof value==='string'?JSON.parse(value):value;
+  if(!Array.isArray(parsed)) fail('Некорректные параметры работы');
+  return parsed;
+};
+const jsonObject = value => {
+  const parsed=typeof value==='string'?JSON.parse(value):value;
+  if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)) fail('Некорректные данные');
+  return parsed;
+};
 
 function validateParameters(parameters) {
   if (!Array.isArray(parameters) || parameters.length > 12) fail('Допустимо не более 12 параметров');
@@ -60,7 +70,7 @@ export function createStore(db) {
       viewerId?one(db,'select 1 from likes where user_id=$1 and work_id=$2',[viewerId,id]):null,
       viewerId?one(db,'select 1 from saves where user_id=$1 and work_id=$2',[viewerId,id]):null
     ]);
-    return {...w,created_at:iso(w.created_at),updated_at:iso(w.updated_at),author,likes_count:likes.n,saves_count:saves.n,liked:!!liked,saved:!!saved,revision:{...r,created_at:iso(r.created_at)}};
+    return {...w,created_at:iso(w.created_at),updated_at:iso(w.updated_at),author,likes_count:likes.n,saves_count:saves.n,liked:!!liked,saved:!!saved,revision:{...r,parameters:jsonArray(r.parameters),created_at:iso(r.created_at)}};
   };
   const addUser = async ({id=randomUUID(),email,display_name='Автор',password='test-password'}) => {
     email=clean(email,254).toLowerCase();
@@ -126,7 +136,7 @@ export function createStore(db) {
       if(item.revision.parent_revision_id){const pr=await one(db,'select r.work_id,r.id as revision_id,w.title,w.author_id from revisions r join works w on w.id=r.work_id where r.id=$1',[item.revision.parent_revision_id]);if(pr&&await canRead(await one(db,'select * from works where id=$1',[pr.work_id]),userId))parent={work_id:pr.work_id,revision_id:pr.revision_id,title:pr.title,author:(await profile(pr.author_id,userId)).display_name};}
       const remixes=await rows(db,"select distinct w.id,w.title from works w join revisions r on r.work_id=w.id where r.parent_revision_id=$1 and w.status='published' limit 30",[item.revision.id]);
       const preset=userId?await one(db,'select vals from presets where user_id=$1 and revision_id=$2',[userId,item.revision.id]):null;
-      return {work:item,comments,revisions:revs,parent,remixes,preset:preset?.vals||null};
+      return {work:item,comments,revisions:revs,parent,remixes,preset:preset?jsonObject(preset.vals):null};
     }
     if(action==='profile') return profile(p.id,userId);
     if(action==='profile_update') {
@@ -168,21 +178,21 @@ export function createStore(db) {
           await tx.query('insert into works(id,author_id,title,description,category,tags) values($1,$2,$3,$4,$5,$6)',[workId,userId,title,description,category,tags]);
         }
         const revisionId=randomUUID();
-        await tx.query('insert into revisions(id,work_id,code,license,parameters,parent_revision_id,preview) values($1,$2,$3,$4,$5,$6,$7)',[revisionId,workId,p.code,p.license,JSON.stringify(p.parameters),parentId,p.preview||null]);
+        await tx.query('insert into revisions(id,work_id,code,license,parameters,parent_revision_id,preview) values($1,$2,$3,$4,($5::text)::jsonb,$6,$7)',[revisionId,workId,p.code,p.license,JSON.stringify(p.parameters),parentId,p.preview||null]);
         await tx.query('update works set current_revision_id=$1,title=$2,description=$3,category=$4,tags=$5,updated_at=now() where id=$6',[revisionId,title,description,category,tags,workId]);
         await tx.query('insert into publish_requests(user_id,request_id,fingerprint,work_id,revision_id) values($1,$2,$3,$4,$5)',[userId,p.request_id,fingerprint,workId,revisionId]);
         return {work_id:workId,revision_id:revisionId};
       });
     }
-    if(action==='draft_list'){await requireUser(userId);return (await rows(db,'select id,version,body,updated_at,conflict_of from drafts where owner_id=$1 order by updated_at desc',[userId])).map(d=>({...d,updated_at:iso(d.updated_at)}));}
+    if(action==='draft_list'){await requireUser(userId);return (await rows(db,'select id,version,body,updated_at,conflict_of from drafts where owner_id=$1 order by updated_at desc',[userId])).map(d=>({...d,body:jsonObject(d.body),updated_at:iso(d.updated_at)}));}
     if(action==='draft_save'){
       await requireUser(userId);if(!uuid(p.id)||!Number.isInteger(p.expected_version)||!p.body||typeof p.body!=='object'||JSON.stringify(p.body).length>100000)fail('Некорректный черновик');
       return db.transaction(async tx=>{
         const current=await one(tx,'select * from drafts where id=$1 for update',[p.id]);
-        if(!current){if(p.expected_version!==0)fail('Черновик не найден');await tx.query('insert into drafts(id,owner_id,version,body) values($1,$2,1,$3)',[p.id,userId,JSON.stringify(p.body)]);const d=await one(tx,'select * from drafts where id=$1',[p.id]);return {draft:{...d,updated_at:iso(d.updated_at)},conflict:false};}
+        if(!current){if(p.expected_version!==0)fail('Черновик не найден');await tx.query('insert into drafts(id,owner_id,version,body) values($1,$2,1,($3::text)::jsonb)',[p.id,userId,JSON.stringify(p.body)]);const d=await one(tx,'select * from drafts where id=$1',[p.id]);return {draft:{...d,body:jsonObject(d.body),updated_at:iso(d.updated_at)},conflict:false};}
         if(current.owner_id!==userId)fail('Нет доступа к черновику');
-        if(current.version!==p.expected_version){const id=randomUUID();await tx.query('insert into drafts(id,owner_id,version,body,conflict_of) values($1,$2,1,$3,$4)',[id,userId,JSON.stringify(p.body),p.id]);const d=await one(tx,'select * from drafts where id=$1',[id]);return {draft:{...d,updated_at:iso(d.updated_at)},conflict:true};}
-        await tx.query('update drafts set version=version+1,body=$1,updated_at=now() where id=$2',[JSON.stringify(p.body),p.id]);const d=await one(tx,'select * from drafts where id=$1',[p.id]);return {draft:{...d,updated_at:iso(d.updated_at)},conflict:false};
+        if(current.version!==p.expected_version){const id=randomUUID();await tx.query('insert into drafts(id,owner_id,version,body,conflict_of) values($1,$2,1,($3::text)::jsonb,$4)',[id,userId,JSON.stringify(p.body),p.id]);const d=await one(tx,'select * from drafts where id=$1',[id]);return {draft:{...d,body:jsonObject(d.body),updated_at:iso(d.updated_at)},conflict:true};}
+        await tx.query('update drafts set version=version+1,body=($1::text)::jsonb,updated_at=now() where id=$2',[JSON.stringify(p.body),p.id]);const d=await one(tx,'select * from drafts where id=$1',[p.id]);return {draft:{...d,body:jsonObject(d.body),updated_at:iso(d.updated_at)},conflict:false};
       });
     }
     if(action==='draft_delete'){await requireUser(userId);await db.query('delete from drafts where id=$1 and owner_id=$2',[p.id,userId]);return {ok:true};}
@@ -200,8 +210,8 @@ export function createStore(db) {
       const w=await one(db,'select * from works where id=$1',[p.work_id]);if(!await canRead(w,userId)||w.status!=='published')fail('Работа недоступна');const id=randomUUID();await db.query('insert into comments(id,work_id,author_id,body,request_id) values($1,$2,$3,$4,$5)',[id,p.work_id,userId,body,p.request_id]);return {id};
     }
     if(action==='preset'){
-      await requireUser(userId);const r=await one(db,'select r.*,w.status,w.author_id from revisions r join works w on w.id=r.work_id where r.id=$1',[p.revision_id]);if(!r||r.status!=='published'||!await canRead({status:r.status,author_id:r.author_id},userId))fail('Версия недоступна');validateValues(r.parameters,p.values);
-      await db.query('insert into presets(user_id,revision_id,vals) values($1,$2,$3) on conflict(user_id,revision_id) do update set vals=excluded.vals',[userId,p.revision_id,JSON.stringify(p.values)]);return {ok:true};
+      await requireUser(userId);const r=await one(db,'select r.*,w.status,w.author_id from revisions r join works w on w.id=r.work_id where r.id=$1',[p.revision_id]);if(!r||r.status!=='published'||!await canRead({status:r.status,author_id:r.author_id},userId))fail('Версия недоступна');validateValues(jsonArray(r.parameters),p.values);
+      await db.query('insert into presets(user_id,revision_id,vals) values($1,$2,($3::text)::jsonb) on conflict(user_id,revision_id) do update set vals=excluded.vals',[userId,p.revision_id,JSON.stringify(p.values)]);return {ok:true};
     }
     if(action==='report'){
       await requireUser(userId);const reason=clean(p.reason,500);if(!reason||reason.length>500)fail('Укажите причину жалобы');const w=await one(db,'select * from works where id=$1',[p.work_id]);if(!await canRead(w,userId)||w.author_id===userId)fail('Работа недоступна');
