@@ -1,0 +1,30 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://shader.gallery/schemas/shader-package-v1.json",
+  "title":"Shader Gallery package v1",
+  "type":"object",
+  "additionalProperties":false,
+  "required":["schemaVersion","runtimeKind","renderProfile","entryPoint","workId","revisionId","contentHash","code","licenseId","parentRevisionId","author","title","parameters","inputs","sourceUrl","preview","publishedAt"],
+  "properties":{
+    "schemaVersion":{"const":1},
+    "runtimeKind":{"const":"shader"},
+    "renderProfile":{"const":"webgl2-gles3-single-pass"},
+    "entryPoint":{"const":"mainImage"},
+    "workId":{"type":"string","format":"uuid"},
+    "revisionId":{"type":"string","format":"uuid"},
+    "contentHash":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "code":{"type":"string","minLength":20,"maxLength":50000},
+    "licenseId":{"enum":["MIT","CC0-1.0"]},
+    "parentRevisionId":{"type":["string","null"]},
+    "author":{"type":"object","additionalProperties":false,"required":["id","name"],"properties":{"id":{"type":"string","format":"uuid"},"name":{"type":"string"}}},
+    "title":{"type":"string","minLength":1,"maxLength":120},
+    "parameters":{"type":"array","maxItems":12,"items":{"oneOf":[
+      {"type":"object","additionalProperties":false,"required":["name","label","type","min","max","default"],"properties":{"name":{"type":"string"},"label":{"type":"string"},"type":{"const":"float"},"min":{"type":"number"},"max":{"type":"number"},"default":{"type":"number"}}},
+      {"type":"object","additionalProperties":false,"required":["name","label","type","default"],"properties":{"name":{"type":"string"},"label":{"type":"string"},"type":{"const":"color"},"default":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}}}
+    ]}},
+    "inputs":{"type":"array","items":{"type":"string"}},
+    "sourceUrl":{"type":"string","format":"uri"},
+    "preview":{"type":["string","null"]},
+    "publishedAt":{"type":"string","format":"date-time"}
+  }
+}

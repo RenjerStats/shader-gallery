@@ -1,0 +1,18 @@
+<resources>
+    <style name="GalleryTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">@font/manrope</item>
+        <item name="android:colorAccent">#284CED</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowBackground">#F8F6F2</item>
+        <item name="android:colorControlHighlight">#18284CED</item>
+        <item name="android:buttonBarPositiveButtonStyle">@style/GalleryDialogButton</item>
+        <item name="android:buttonBarNegativeButtonStyle">@style/GalleryDialogButton</item>
+        <item name="android:buttonBarNeutralButtonStyle">@style/GalleryDialogButton</item>
+    </style>
+    <style name="GalleryDialogButton" parent="android:style/Widget.Material.Light.Button.Borderless">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:fontFamily">@font/manrope</item>
+        <item name="android:textColor">#284CED</item>
+    </style>
+</resources>

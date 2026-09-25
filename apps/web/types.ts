@@ -1,0 +1,9 @@
+export type Parameter={name:string;label:string;type:'float'|'color';min?:number;max?:number;default:number|string};
+export type User={id:string;email?:string};
+export type Profile={id:string;username:string;display_name:string;bio:string;is_following:boolean;is_blocked:boolean;is_moderator?:boolean};
+export type Revision={id:string;work_id:string;code:string;license:string;parameters:Parameter[];parent_revision_id:string|null;preview:string|null;created_at:string};
+export type Work={id:string;author_id:string;title:string;description:string;category:string;tags:string[];status:string;curated:boolean;created_at:string;updated_at:string;current_revision_id:string;author:Profile;likes_count:number;saves_count:number;liked:boolean;saved:boolean;revision:Revision};
+export type FeedWork={id:string;author_id:string;title:string;category:string;author:{display_name:string};revision:{id:string;preview:string|null}};
+export type Draft={id:string;version:number;body:Record<string,unknown>;updated_at:string;conflict_of:string|null};
+export type Comment={id:string;work_id:string;author:Profile;body:string;created_at:string};
+export type WorkDetail={work:Work;comments:Comment[];revisions:{id:string;created_at:string}[];parent:{work_id:string;revision_id:string;title:string;author:string}|null;remixes:{id:string;title:string}[];preset:Record<string,number|string>|null};
