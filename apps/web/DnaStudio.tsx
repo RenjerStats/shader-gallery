@@ -40,7 +40,7 @@ function VariantCard({variant,onRefresh,onError}:{variant:Variant;onRefresh:()=>
         {!compiled&&<p className="muted small">Если превью не работает на устройстве, сохраните черновик и исправьте код в редакторе на компьютере.</p>}
         <div className="dna-actions">{variant.work_id?<a className="button primary" href={href(`/works/${variant.work_id}`)}>Открыть публикацию</a>:<button className="button primary" disabled={busy||!compiled} onClick={()=>action('publish')}>Опубликовать</button>}
           <button className="button" disabled={busy||!!saved} onClick={()=>action('save')}>{saved?'Черновик сохранён':'В черновики'}</button>
-          {saved&&<a className="button dna-editor-link" href={href(`/editor?draft=${saved}`)}>Открыть в редакторе</a>}</div>
+          {saved&&<a className="button dna-editor-link" href={href(`/workshop?draft=${saved}`)}>Открыть в редакторе</a>}</div>
         {saved&&<p className="muted small">Сохранённый черновик доступен на всех устройствах. Редактор кода — на компьютере.</p>}
       </div></>:<div className={`dna-placeholder ${variant.status==='running'?'is-running':''}`}><span className="dna-orbit" aria-hidden="true"/><h3>{statuses[variant.status]}</h3><p>{variant.error_message||(variant.status==='cancelled'?'Готовые результаты остались в истории.':'У каждой модели своё прочтение вашей идеи. Можно закрыть страницу и вернуться позже.')}</p>
         {variant.status==='failed'&&variant.attempts<3&&<button className="button" disabled={busy} onClick={()=>action('retry')}>Повторить этот вариант</button>}
@@ -131,3 +131,4 @@ export function DnaStudio({user,requireAuth}:{user:User|null;requireAuth:()=>voi
     <section className="dna-history"><div className="section-head"><div><p className="eyebrow">03 / КОЛЛЕКЦИЯ ИДЕЙ</p><h2>История генераций</h2></div>{user&&<button className="button" onClick={()=>loadHistory().catch(e=>setError(message(e)))}>Обновить</button>}</div>{!user?<p className="muted">Войдите, чтобы продолжать свои идеи на любом устройстве.</p>:history.items.length?<><div className="dna-history-grid">{history.items.map(j=><button key={j.id} disabled={busy} className={`dna-history-item ${job?.id===j.id?'selected':''}`} onClick={()=>openJob(j.id,true)}><span>{new Date(j.created_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}</span><strong>{j.prompt}</strong><span>{j.variants.filter(v=>v.status==='ready').length} из 2 готово{j.variants.some(v=>v.status==='running'||v.status==='queued')?' · создаётся':''}</span></button>)}</div>{history.next_cursor&&<button className="button" onClick={()=>loadHistory(true).catch(e=>setError(message(e)))}>Ранее</button>}</>:<p className="muted">Здесь сохранятся ваши идеи и оба варианта каждой генерации.</p>}</section>
   </main>;
 }
+

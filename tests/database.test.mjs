@@ -41,6 +41,23 @@ test('two users can publish, discover, discuss, save and remix a version',async(
   }finally{await s.close()}
 });
 
+test('virtual exhibitions rank by likes and discussion independently',async()=>{
+  const s=await createDatabase({memory:true});
+  try{
+    const author=await s.addUser({email:'gallery-author@example.test'});
+    const a=await s.addUser({email:'gallery-a@example.test'});
+    const b=await s.addUser({email:'gallery-b@example.test'});
+    const liked=await s.rpc(author.id,'publish',{...base,title:'Любимая',request_id:randomUUID()});
+    const discussed=await s.rpc(author.id,'publish',{...base,title:'Обсуждаемая',request_id:randomUUID()});
+    await s.rpc(a.id,'like',{work_id:liked.work_id,active:true});
+    await s.rpc(b.id,'like',{work_id:liked.work_id,active:true});
+    await s.rpc(a.id,'comment',{work_id:discussed.work_id,request_id:randomUUID(),body:'Первый отзыв'});
+    await s.rpc(b.id,'comment',{work_id:discussed.work_id,request_id:randomUUID(),body:'Второй отзыв'});
+    assert.equal((await s.rpc(null,'feed',{mode:'popular'})).items[0].id,liked.work_id);
+    assert.equal((await s.rpc(null,'feed',{mode:'discussed'})).items[0].id,discussed.work_id);
+  }finally{await s.close()}
+});
+
 test('publication is idempotent and drafts preserve conflicting edits',async()=>{
   const s=await createDatabase({memory:true});
   try{

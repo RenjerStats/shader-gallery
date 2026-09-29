@@ -85,7 +85,7 @@ export function createStore(db,options={}) {
     const userId=viewerId||null;
     if(action.startsWith('dna_')) return dna.rpc(userId,action,p);
     if(action==='feed') {
-      const mode=['new','curated','following','saved'].includes(p.mode)?p.mode:'new';
+      const mode=['new','curated','following','saved','popular','discussed'].includes(p.mode)?p.mode:'new';
       if((mode==='following'||mode==='saved')&&!userId) fail('Нужно войти в аккаунт');
       const limit=Math.min(30,Math.max(1,Number(p.limit)||12));
       const args=[userId]; let where="w.status='published' and not exists(select 1 from blocks b where b.user_id=$1 and b.author_id=w.author_id)";
@@ -95,16 +95,18 @@ export function createStore(db,options={}) {
       if(p.query){args.push(`%${clean(p.query,100)}%`);where+=` and (w.title ilike $${args.length} or w.description ilike $${args.length} or exists(select 1 from unnest(w.tags) t where t ilike $${args.length}))`;}
       if(p.category){args.push(clean(p.category,40));where+=` and w.category=$${args.length}`;}
       if(p.author_id){if(!uuid(p.author_id)) fail('Некорректный автор');args.push(p.author_id);where+=` and w.author_id=$${args.length}`;}
-      if(p.cursor){if(!uuid(p.cursor.id)||!p.cursor.created_at) fail('Некорректная страница');args.push(p.cursor.created_at,p.cursor.id);where+=` and (w.created_at,w.id)<($${args.length-1}::timestamptz,$${args.length}::uuid)`;}
+      if(p.cursor && mode!=='popular' && mode!=='discussed'){if(!uuid(p.cursor.id)||!p.cursor.created_at) fail('Некорректная страница');args.push(p.cursor.created_at,p.cursor.id);where+=` and (w.created_at,w.id)<($${args.length-1}::timestamptz,$${args.length}::uuid)`;}
       args.push(limit+1);
+      const ranking=mode==='popular'?'left join (select work_id,count(*) as score from likes group by work_id) reaction on reaction.work_id=w.id':mode==='discussed'?'left join (select work_id,count(*) as score from comments group by work_id) reaction on reaction.work_id=w.id':'';
+      const order=ranking?'coalesce(reaction.score,0) desc,w.created_at desc,w.id desc':'w.created_at desc,w.id desc';
       const selected=await rows(db,`select w.id,w.author_id,w.title,w.description,w.tags,w.category,w.created_at,u.display_name,r.id as revision_id,r.preview
-        from works w join users u on u.id=w.author_id join revisions r on r.id=w.current_revision_id
-        where ${where} order by w.created_at desc,w.id desc limit $${args.length}`,args);
+        from works w join users u on u.id=w.author_id join revisions r on r.id=w.current_revision_id ${ranking}
+        where ${where} order by ${order} limit $${args.length}`,args);
       const page=selected.slice(0,limit);
       const items=page.map(w=>({id:w.id,author_id:w.author_id,title:w.title,description:w.description,tags:w.tags,category:w.category,created_at:iso(w.created_at),
         author:{display_name:w.display_name},revision:{id:w.revision_id,preview:w.preview}}));
       const last=page.at(-1);
-      return {items,next_cursor:selected.length>limit&&last?{created_at:iso(last.created_at),id:last.id}:null};
+      return {items,next_cursor:!ranking&&selected.length>limit&&last?{created_at:iso(last.created_at),id:last.id}:null};
     }
     if(action==='work') {
       if(!uuid(p.id)) fail('Некорректная работа');

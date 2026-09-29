@@ -50,6 +50,7 @@ export function GalleryCard({work,index,onOpen,gyro}:{work:FeedWork;index:number
   return <article ref={ref} className="gallery-card" style={{'--accent':accents[index%accents.length]} as CSSProperties}
     data-dragging={dragging} onPointerMove={e=>{if(e.pointerType==='mouse'||dragging)point(e.clientX,e.clientY)}}
     onPointerLeave={reset} onPointerUp={reset} onPointerCancel={reset}>
+    <div className="gallery-card-surface">
     <div className="gallery-card-glow" aria-hidden="true"/>
     <div className="gallery-card-art" role="link" tabIndex={0} aria-label={`Открыть работу ${work.title}`}
       onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();onOpen()}}}
@@ -65,5 +66,6 @@ export function GalleryCard({work,index,onOpen,gyro}:{work:FeedWork;index:number
       <div className="gallery-card-footer"><div className="gallery-card-tags">{(work.tags?.length?work.tags:[work.category]).slice(0,3).map(tag=><span className="gallery-card-tag" key={tag}>{tag}</span>)}</div><button className="gallery-card-open" onClick={onOpen}><Icon name="arrow"/> Открыть</button></div>
       <div className="gallery-card-author">by {work.author.display_name}</div>
     </div><div className="gallery-card-glare" aria-hidden="true"/>
+    </div>
   </article>;
 }
