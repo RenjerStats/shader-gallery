@@ -9,11 +9,18 @@ const publishableKey=Deno.env.get('SUPABASE_PUBLISHABLE_KEY')||Deno.env.get('SUP
 if(!dbUrl||!supabaseUrl||!publishableKey)throw new Error('Supabase configuration is missing');
 
 const sql=postgres(dbUrl,{prepare:false,max:3,connect_timeout:10});
-const adapter=(client:typeof sql)=>({
-  query:async (query:string,args:unknown[]=[])=>({rows:await client.unsafe(query,args)}),
-  transaction:async <T>(run:(tx:ReturnType<typeof adapter>)=>Promise<T>)=>client.begin(async tx=>run(adapter(tx as typeof sql))) as Promise<T>
+type DatabaseAdapter={
+  query:(query:string,args?:postgres.ParameterOrJSON<never>[])=>Promise<{rows:Record<string,unknown>[]}>,
+  transaction:<T>(run:(tx:DatabaseAdapter)=>Promise<T>)=>Promise<T>
+};
+declare const EdgeRuntime:{waitUntil(task:Promise<unknown>):void};
+const adapter=(client:typeof sql):DatabaseAdapter=>({
+  query:async (query,args=[])=>({rows:await client.unsafe(query,args)}),
+  transaction:async <T>(run:(tx:DatabaseAdapter)=>Promise<T>)=>client.begin(async tx=>run(adapter(tx as typeof sql))) as Promise<T>
 });
-const store=createStore(adapter(sql));
+const store=createStore(adapter(sql),{dna:{apiKey:Deno.env.get('OPENROUTER_API_KEY'),
+  models:Deno.env.get('DNA_MODELS')?.split(',').map(s=>s.trim()),
+  schedule:(task:Promise<unknown>)=>EdgeRuntime.waitUntil(task)}});
 const auth=createClient(supabaseUrl,publishableKey,{auth:{persistSession:false,autoRefreshToken:false}});
 const allowed=new Set(['https://renjerstats.github.io','http://localhost:4173','http://127.0.0.1:4173']);
 

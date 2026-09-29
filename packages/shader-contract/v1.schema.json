@@ -16,6 +16,7 @@
     "code":{"type":"string","minLength":20,"maxLength":50000},
     "licenseId":{"enum":["MIT","CC0-1.0"]},
     "parentRevisionId":{"type":["string","null"]},
+    "dnaOrigin":{"type":["object","null"],"description":"Shader DNA model and immutable reference attribution, preserved for offline packages."},
     "author":{"type":"object","additionalProperties":false,"required":["id","name"],"properties":{"id":{"type":"string","format":"uuid"},"name":{"type":"string"}}},
     "title":{"type":"string","minLength":1,"maxLength":120},
     "parameters":{"type":"array","maxItems":12,"items":{"oneOf":[

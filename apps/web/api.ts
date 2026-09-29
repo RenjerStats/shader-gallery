@@ -6,12 +6,14 @@ const config=url&&key?{mode:'supabase' as const,url,key}:await fetch('/api/confi
 export const authMode=config.mode;
 const supabase=config.mode==='supabase'?createClient(config.url!,config.key!):null;
 async function request<T>(url:string,body?:unknown):Promise<T>{
- const res=await fetch(url,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+ const res=await fetch(url,{method:body===undefined?'GET':'POST',signal:AbortSignal.timeout(25000),credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
  const result=await res.json();if(!res.ok||result.error)throw new Error(result.error||'Ошибка запроса');return result.data as T;
 }
 export async function rpc<T>(action:string,payload:object={}):Promise<T>{
  if(!supabase)return request('/api/rpc',{action,payload});
- const {data,error}=await supabase.functions.invoke('gallery',{body:{action,payload}});if(error)throw new Error(error.message);if(data?.error)throw new Error(data.error);return data.data as T;
+ const {data,error}=await supabase.functions.invoke('gallery',{body:{action,payload},timeout:25000});
+ if(error){let message=error.message;try{const body=await error.context?.json();if(typeof body?.error==='string')message=body.error}catch{}throw new Error(message)}
+ if(data?.error)throw new Error(data.error);return data.data as T;
 }
 export async function getSession():Promise<User|null>{if(!supabase)return request('/api/auth/session');const {data,error}=await supabase.auth.getUser();if(error)return null;return data.user?{id:data.user.id,email:data.user.email}:null;}
 export async function signIn(email:string,password:string):Promise<User|null>{if(!supabase)return request('/api/auth/login',{email,password});const {data,error}=await supabase.auth.signInWithPassword({email,password});if(error)throw new Error(error.message);return data.user;}

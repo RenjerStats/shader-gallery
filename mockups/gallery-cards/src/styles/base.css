@@ -1,0 +1,165 @@
+@font-face {
+  font-family: Lora;
+  src: url('/fonts/lora.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: Manrope;
+  src: url('/fonts/manrope.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  min-width: 320px;
+  background: #06070c;
+  color: #eef0f6;
+  font-family: Manrope, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+img, canvas, svg { display: block; }
+h1, h2, h3, p { margin: 0; }
+
+:root {
+  --serif: Lora, Georgia, serif;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* ————— Общая обёртка «телефона» для мобильных макетов ————— */
+.stage {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 16px 96px;
+  position: relative;
+}
+.stage--blurred::before {
+  content: '';
+  position: fixed;
+  inset: -12%;
+  background:
+    radial-gradient(60% 55% at 18% 18%, rgba(120, 90, 255, 0.28), transparent 65%),
+    radial-gradient(55% 50% at 84% 78%, rgba(255, 120, 90, 0.22), transparent 65%),
+    radial-gradient(70% 60% at 50% 50%, rgba(30, 40, 90, 0.5), transparent 70%),
+    #05060a;
+  filter: blur(10px);
+  z-index: -1;
+}
+.phone {
+  position: relative;
+  width: 392px;
+  height: 848px;
+  border-radius: 58px;
+  padding: 12px;
+  background: linear-gradient(150deg, #2c2e36, #101116 45%, #2a2c33);
+  box-shadow:
+    0 2px 2px rgba(255, 255, 255, 0.14) inset,
+    0 60px 120px -40px rgba(0, 0, 0, 0.85),
+    0 24px 60px -20px rgba(0, 0, 0, 0.7);
+  transform-origin: center center;
+  flex: none;
+}
+.phone::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 50px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  pointer-events: none;
+  z-index: 40;
+}
+.phone-screen {
+  position: relative;
+  height: 100%;
+  border-radius: 47px;
+  overflow: hidden;
+  background: #07070c;
+}
+.phone-island {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 108px;
+  height: 30px;
+  border-radius: 20px;
+  background: #000;
+  z-index: 30;
+}
+
+/* ————— Панель переключения макетов ————— */
+.switcher {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 18px;
+  background: rgba(16, 18, 26, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.9);
+}
+.switcher button {
+  padding: 9px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(235, 238, 248, 0.62);
+  white-space: nowrap;
+  transition: background-color 160ms var(--ease), color 160ms var(--ease);
+}
+.switcher button:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+.switcher button[data-active='true'] { color: #0b0c12; background: #eef0f6; }
+.switcher .divider { width: 1px; height: 22px; background: rgba(255, 255, 255, 0.12); margin: 0 2px; }
+.switcher .hint { padding: 0 10px; font-size: 11px; color: rgba(235, 238, 248, 0.45); max-width: 240px; line-height: 1.35; }
+
+@media (max-width: 900px) {
+  .switcher .hint { display: none; }
+  .switcher button { padding: 8px 10px; font-size: 11px; }
+}
+
+/* ————— Tilt: 3D «покрутить в руках» ————— */
+.tilt {
+  position: relative;
+  transform-style: preserve-3d;
+  transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) scale(var(--lift, 1));
+  will-change: transform;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+}
+.tilt[data-grabbing='true'] { cursor: grabbing; }
+.tilt .glare {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    46% 46% at calc(var(--mx, 0.5) * 100%) calc(var(--my, 0.5) * 100%),
+    rgba(255, 255, 255, 0.35),
+    rgba(255, 255, 255, 0.05) 45%,
+    transparent 72%
+  );
+  transition: opacity 240ms var(--ease);
+  mix-blend-mode: screen;
+}
+.tilt[data-glare='true']:hover .glare,
+.tilt[data-grabbing='true'] .glare { opacity: 0.55; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tilt { transition: none; }
+}

@@ -1,0 +1,103 @@
+/* Версия B (мобилка): тот же 3D-зал, прокрутка пальцем + взгляд от наклона. */
+
+.gw-view--mobile {
+  background: #0c0906;
+}
+
+/* Статус-бар читаем поверх сцены */
+.gw-view--mobile .m-status {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  background: linear-gradient(rgba(10, 7, 4, 0.5), transparent);
+}
+
+.gw-m-counter {
+  position: absolute;
+  top: 46px;
+  right: 14px;
+  z-index: 3;
+  padding: 6px 12px;
+  border: 1px solid rgba(216, 178, 92, 0.35);
+  border-radius: 999px;
+  background: rgba(20, 13, 6, 0.5);
+  backdrop-filter: blur(6px);
+  font-family: Manrope, sans-serif;
+  font-size: 11px;
+  color: rgba(243, 234, 216, 0.65);
+}
+.gw-m-counter b {
+  font-family: Lora, serif;
+  font-size: 14px;
+  color: #e8c77e;
+}
+
+/* Карточка-подпись у нижнего края */
+.gw-m-caption {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 3;
+  padding: 13px 15px 12px;
+  border: 1px solid rgba(130, 96, 34, 0.4);
+  border-radius: 15px;
+  background: linear-gradient(165deg, #f4ecd9, #e3d3ae);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  color: #33240f;
+}
+.gw-m-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.gw-m-head h3 {
+  font-family: Lora, serif;
+  font-size: 18px;
+}
+.gw-m-head span {
+  font-family: Manrope, sans-serif;
+  font-size: 11px;
+  color: rgba(51, 36, 15, 0.55);
+}
+.gw-m-author {
+  font-family: Lora, serif;
+  font-style: italic;
+  font-size: 12px;
+  color: rgba(51, 36, 15, 0.7);
+}
+.gw-m-desc {
+  margin-top: 8px;
+  font-family: Manrope, sans-serif;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(51, 36, 15, 0.8);
+}
+.gw-m-tags {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(130, 96, 34, 0.3);
+  font-family: Lora, serif;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: rgba(51, 36, 15, 0.68);
+}
+.gw-m-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.gw-m-row .m-gyro {
+  border-color: rgba(51, 36, 15, 0.35);
+  background: rgba(51, 36, 15, 0.07);
+  color: #33240f;
+}
+.gw-m-hint {
+  font-family: Manrope, sans-serif;
+  font-size: 9.5px;
+  line-height: 1.35;
+  color: rgba(51, 36, 15, 0.55);
+}

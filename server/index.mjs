@@ -8,7 +8,11 @@ import {makePackage} from './package.mjs';
 const production=process.argv.includes('--production');
 const port=Number(process.env.PORT)||4173;
 await mkdir('data',{recursive:true});
-const store=await createDatabase({path:process.env.DATA_DIR||'data/pglite'});
+const store=await createDatabase({path:process.env.DATA_DIR||'data/pglite',dna:{apiKey:process.env.OPENROUTER_API_KEY,
+  models:process.env.DNA_MODELS?.split(',').map(s=>s.trim())}});
+await store.dna.recover();
+const dnaRecovery=setInterval(()=>store.dna.recover().catch(()=>console.error('DNA recovery failed')),30000);
+dnaRecovery.unref();
 const vite=production?null:await createViteServer({configFile:'vite.config.ts',server:{middlewareMode:true},appType:'custom'});
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};
 const cookies=req=>Object.fromEntries((req.headers.cookie||'').split(';').map(x=>x.trim().split('=').map(decodeURIComponent)).filter(x=>x.length===2));

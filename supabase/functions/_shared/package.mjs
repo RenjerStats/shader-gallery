@@ -13,6 +13,7 @@ export function makePackage(detail,origin){
     code:revision.code,
     licenseId:revision.license,
     parentRevisionId:revision.parent_revision_id,
+    dnaOrigin:revision.dna_origin||null,
     author:{id:work.author_id,name:work.author.display_name},
     title:work.title,
     parameters:revision.parameters,

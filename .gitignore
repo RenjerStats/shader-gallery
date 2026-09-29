@@ -18,3 +18,4 @@ apps/android/local.properties
 *.apk
 .playwright-cli/
 supabase/.temp/
+mockups/gallery-cards/dist/

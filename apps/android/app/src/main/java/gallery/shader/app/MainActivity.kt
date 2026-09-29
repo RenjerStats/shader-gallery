@@ -263,6 +263,7 @@ class MainActivity:Activity() {
     override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);handleIntent(intent)}
     private fun buildGallery(content:LinearLayout){
         content.addView(text("Галерея",32f,ink,true).apply {setPadding(0,dp(14),0,dp(16))})
+        content.addView(button("DNA Studio · создать по идее"){openDna()},LinearLayout.LayoutParams(-1,dp(48)).apply {bottomMargin=dp(12)})
         val tabs=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
         newTab=button("Новое"){galleryMode="new";updateTabs();loadGallery(false)}
         curatedTab=button("Подборка"){galleryMode="curated";updateTabs();loadGallery(false)}
@@ -556,6 +557,15 @@ class MainActivity:Activity() {
     }
     private fun renderSocial(detail:org.json.JSONObject,shader:ShaderPackage){
         socialPanel.removeAllViews()
+        socialPanel.addView(button("Использовать в DNA Studio"){openDna(shader)},LinearLayout.LayoutParams(-1,dp(48)))
+        detail.getJSONObject("work").getJSONObject("revision").optJSONObject("dna_origin")?.optJSONArray("references")?.let {refs->
+            socialPanel.addView(text("Референсы Shader DNA",16f,ink,true))
+            for(i in 0 until refs.length()){val ref=refs.getJSONObject(i)
+                socialPanel.addView(button("${ref.getString("title")} · ${ref.getString("author")}"){
+                    startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("${gallerySource ?: GalleryClient.SITE}/works/${ref.getString("work_id")}?revision=${ref.getString("revision_id")}")))
+                })
+            }
+        }
         val work=detail.getJSONObject("work")
         val author=work.getJSONObject("author")
         val reactions=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
@@ -601,12 +611,17 @@ class MainActivity:Activity() {
         }.start()
     }
     private fun changed(shader:ShaderPackage){PackageStore.saveValues(this,shader,values);preview.setValues(values.toMap())}
+    private fun openDna(shader:ShaderPackage?=null){
+        if(viewerId==null){showAuthDialog();return}
+        startActivity(Intent(this,DnaStudioActivity::class.java).putExtra("source",gallerySource ?: GalleryClient.SITE)
+            .putExtra("work_id",shader?.workId).putExtra("revision_id",shader?.revisionId))
+    }
     private fun installWallpaper(){val shader=current ?: return;if(!ready)return;PackageStore.saveValues(this,shader,values);PackageStore.select(this,shader);val intent=Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,ComponentName(this,GalleryWallpaperService::class.java));try{startActivity(intent)}catch(e:Exception){status.text="Не удалось открыть системный экран обоев: ${e.message}"}}
     override fun onResume(){super.onResume();resumed=true;if(current!=null && detailOpen){window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);if(::preview.isInitialized && !previewRunning){preview.start();previewRunning=true}}}
     override fun onPause(){resumed=false;if(previewRunning){preview.stop();previewRunning=false};window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);super.onPause()}
 }
 
-private class GalleryPreview(context:Activity,private val onStatus:(Boolean,String)->Unit):GLSurfaceView(context),GLSurfaceView.Renderer,SensorEventListener {
+internal class GalleryPreview(context:Activity,private val onStatus:(Boolean,String)->Unit):GLSurfaceView(context),GLSurfaceView.Renderer,SensorEventListener {
     private val handler=Handler(Looper.getMainLooper())
     private val sensorManager=context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val sensor=sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
@@ -623,6 +638,24 @@ private class GalleryPreview(context:Activity,private val onStatus:(Boolean,Stri
     init{setEGLContextClientVersion(3);setRenderer(this);renderMode=RENDERMODE_WHEN_DIRTY}
     fun setShader(shader:ShaderPackage,values:Map<String,String>){this.values=values;pending=shader;requestRender()}
     fun setValues(values:Map<String,String>){this.values=values;requestRender()}
+    fun snapshot(callback:(String?)->Unit){queueEvent {
+        val image=try {
+            val w=width;val h=height
+            require(w>0 && h>0 && w.toLong()*h<=8_000_000)
+            val currentProgram=program ?: error("Превью недоступно")
+            currentProgram.draw(w,h,PackageStore.quality(context),values,tilt,mouse)
+            val buffer=java.nio.ByteBuffer.allocateDirect(w*h*4)
+            GLES30.glReadPixels(0,0,w,h,GLES30.GL_RGBA,GLES30.GL_UNSIGNED_BYTE,buffer)
+            val bitmap=android.graphics.Bitmap.createBitmap(w,h,android.graphics.Bitmap.Config.ARGB_8888)
+            buffer.rewind();bitmap.copyPixelsFromBuffer(buffer)
+            val edge=160f/maxOf(w,h);val scaled=android.graphics.Bitmap.createScaledBitmap(bitmap,maxOf(1,(w*edge).toInt()),maxOf(1,(h*edge).toInt()),true)
+            val flipped=android.graphics.Bitmap.createBitmap(scaled,0,0,scaled.width,scaled.height,android.graphics.Matrix().apply {postScale(1f,-1f)},true)
+            val output=java.io.ByteArrayOutputStream();flipped.compress(android.graphics.Bitmap.CompressFormat.JPEG,65,output)
+            if(flipped!==scaled)flipped.recycle();if(scaled!==bitmap)scaled.recycle();bitmap.recycle()
+            "data:image/jpeg;base64,"+android.util.Base64.encodeToString(output.toByteArray(),android.util.Base64.NO_WRAP)
+        }catch(_:Exception){null}
+        post{callback(image)}
+    }}
     fun start(){onResume();running=true;handler.removeCallbacks(tick);handler.post(tick);if(sensor!=null && !isPaused)sensorManager.registerListener(this,sensor,SensorManager.SENSOR_DELAY_GAME)}
     fun setPaused(paused:Boolean){isPaused=paused;handler.removeCallbacks(tick);sensorManager.unregisterListener(this);if(running && !paused){handler.post(tick);if(sensor!=null)sensorManager.registerListener(this,sensor,SensorManager.SENSOR_DELAY_GAME)};requestRender()}
     fun stop(){running=false;handler.removeCallbacks(tick);sensorManager.unregisterListener(this);onPause()}

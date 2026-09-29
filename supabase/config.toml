@@ -2,3 +2,7 @@ project_id = "opjadrnmcghpwxrsryus"
 
 [functions.gallery]
 verify_jwt = false
+
+# Allow the two generation tasks to finish after an HTTP response during local testing.
+[edge_runtime]
+policy = "per_worker"

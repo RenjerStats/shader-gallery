@@ -1,4 +1,6 @@
+import {validateParameters,validateValues} from './shader-validation.mjs';
 import {randomUUID, createHash, randomBytes, scryptSync, timingSafeEqual} from 'node:crypto';
+import {createDnaService} from './dna-core.mjs';
 
 const fail = (message) => { throw new Error(message); };
 const uuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value||''));
@@ -19,30 +21,7 @@ const jsonObject = value => {
   return parsed;
 };
 
-function validateParameters(parameters) {
-  if (!Array.isArray(parameters) || parameters.length > 12) fail('Допустимо не более 12 параметров');
-  const names = new Set();
-  for (const p of parameters) {
-    if (!p || !/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(p.name) || ['iTime','iResolution','iMouse','iTilt'].includes(p.name) || names.has(p.name)) fail('Некорректное имя параметра');
-    names.add(p.name);
-    if (!clean(p.label,60) || clean(p.label,60).length>60) fail('Укажите название параметра');
-    if (p.type==='float') {
-      if (![p.min,p.max,p.default].every(x=>typeof x==='number' && Number.isFinite(x)) || p.min>=p.max || p.default<p.min || p.default>p.max) fail('Некорректный диапазон параметра');
-    } else if (p.type==='color') {
-      if (!/^#[0-9a-f]{6}$/i.test(p.default)) fail('Цвет должен быть в формате #RRGGBB');
-    } else fail('Неизвестный тип параметра');
-  }
-}
-function validateValues(parameters, values) {
-  if (!values || typeof values!=='object' || Array.isArray(values)) fail('Некорректный пресет');
-  for (const [name,value] of Object.entries(values)) {
-    const p=parameters.find(x=>x.name===name); if(!p) fail('Неизвестный параметр');
-    if(p.type==='float' && (typeof value!=='number' || !Number.isFinite(value) || value<p.min || value>p.max)) fail('Значение вне диапазона');
-    if(p.type==='color' && (typeof value!=='string' || !/^#[0-9a-f]{6}$/i.test(value))) fail('Некорректный цвет');
-  }
-}
-
-export function createStore(db) {
+export function createStore(db,options={}) {
   const requireUser = async id => {
     if(!uuid(id)) fail('Нужно войти в аккаунт');
     const u=await one(db,'select * from users where id=$1',[id]);
@@ -102,8 +81,9 @@ export function createStore(db) {
   };
   const revokeSession = async token => {if(token) await db.query('delete from sessions where token_hash=$1',[hash(token)]);};
 
-  async function rpc(viewerId,action,p={}) {
+  async function rpc(viewerId,action,p={},replayDnaPublication=false) {
     const userId=viewerId||null;
+    if(action.startsWith('dna_')) return dna.rpc(userId,action,p);
     if(action==='feed') {
       const mode=['new','curated','following','saved'].includes(p.mode)?p.mode:'new';
       if((mode==='following'||mode==='saved')&&!userId) fail('Нужно войти в аккаунт');
@@ -160,9 +140,16 @@ export function createStore(db) {
       }
       const fingerprint=hash(JSON.stringify(p));
       return db.transaction(async tx=>{
+        await tx.query('select id from users where id=$1 for update',[userId]);
         const prior=await one(tx,'select * from publish_requests where user_id=$1 and request_id=$2',[userId,p.request_id]);
-        if(prior){if(prior.fingerprint!==fingerprint)fail('Идентификатор публикации уже использован');return {work_id:prior.work_id,revision_id:prior.revision_id};}
-        let workId=p.work_id, parentId=p.parent_revision_id||null;
+        if(prior){if(prior.fingerprint!==fingerprint&&!replayDnaPublication)fail('Идентификатор публикации уже использован');return {work_id:prior.work_id,revision_id:prior.revision_id};}
+        let workId=p.work_id, parentId=p.parent_revision_id||null, dnaOrigin=null;
+        if(p.dna_variant_id){
+          const variant=await dna.ownedVariant(userId,p.dna_variant_id,tx);
+          if(variant.status!=='ready')fail('Вариант ещё не готов');
+          if(p.license!=='MIT')fail('Для результата DNA сохраните лицензию MIT и авторство референсов');
+          dnaOrigin=dna.origin(variant);
+        }
         if(workId){
           if(!uuid(workId)||!uuid(p.base_revision_id))fail('Некорректная версия');
           const w=await one(tx,'select * from works where id=$1 for update',[workId]);
@@ -170,6 +157,7 @@ export function createStore(db) {
           if(w.current_revision_id!==p.base_revision_id)fail('Работа была изменена. Обновите версию.');
           const current=await one(tx,'select * from revisions where id=$1',[w.current_revision_id]);
           parentId=current.parent_revision_id;
+          dnaOrigin=current.dna_origin;
           if(current.license!==p.license)fail('Лицензию работы менять нельзя');
         } else {
           workId=randomUUID();
@@ -177,11 +165,12 @@ export function createStore(db) {
             if(!uuid(parentId))fail('Некорректный оригинал');
             const parent=await one(tx,'select r.*,w.status,w.author_id from revisions r join works w on w.id=r.work_id where r.id=$1',[parentId]);
             if(!parent||parent.status!=='published'||parent.author_id===userId||parent.license!==p.license)fail('Ремикс оригинала недоступен');
+            dnaOrigin=parent.dna_origin;
           }
           await tx.query('insert into works(id,author_id,title,description,category,tags) values($1,$2,$3,$4,$5,$6)',[workId,userId,title,description,category,tags]);
         }
         const revisionId=randomUUID();
-        await tx.query('insert into revisions(id,work_id,code,license,parameters,parent_revision_id,preview) values($1,$2,$3,$4,($5::text)::jsonb,$6,$7)',[revisionId,workId,p.code,p.license,JSON.stringify(p.parameters),parentId,p.preview||null]);
+        await tx.query('insert into revisions(id,work_id,code,license,parameters,parent_revision_id,preview,dna_origin) values($1,$2,$3,$4,($5::text)::jsonb,$6,$7,($8::text)::jsonb)',[revisionId,workId,p.code,p.license,JSON.stringify(p.parameters),parentId,p.preview||null,dnaOrigin?JSON.stringify(dnaOrigin):null]);
         await tx.query('update works set current_revision_id=$1,title=$2,description=$3,category=$4,tags=$5,updated_at=now() where id=$6',[revisionId,title,description,category,tags,workId]);
         await tx.query('insert into publish_requests(user_id,request_id,fingerprint,work_id,revision_id) values($1,$2,$3,$4,$5)',[userId,p.request_id,fingerprint,workId,revisionId]);
         return {work_id:workId,revision_id:revisionId};
@@ -231,5 +220,6 @@ export function createStore(db) {
     }
     fail('Неизвестное действие');
   }
-  return {db,rpc,addUser,authenticate,createSession,sessionUser,revokeSession,close:()=>db.close()};
+  const dna=createDnaService(db,{requireUser,publish:(id,p)=>rpc(id,'publish',p,true)},options.dna);
+  return {db,rpc,dna,addUser,authenticate,createSession,sessionUser,revokeSession,close:()=>db.close()};
 }

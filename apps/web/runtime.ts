@@ -19,10 +19,11 @@ export class ShaderRenderer {
   private hidden=document.hidden;
   private mouse=[0,0,0,0];
   private disposed=false;
+  private compiledCode:string|null=null;
   private quality=0.7;
   private readonly visibility=()=>{this.hidden=document.hidden;this.last=performance.now();this.schedule();if(!this.hidden)this.draw();};
   private readonly pointer=(event:PointerEvent)=>{const r=this.canvas.getBoundingClientRect();this.mouse=[(event.clientX-r.left)/r.width*this.canvas.width,(r.bottom-event.clientY)/r.height*this.canvas.height,event.buttons?1:0,0];this.draw();};
-  constructor(private canvas:HTMLCanvasElement){
+  constructor(private canvas:HTMLCanvasElement,private onContextStatus?:(result:{ok:boolean;error?:string;line?:number})=>void){
     const gl=canvas.getContext('webgl2',{preserveDrawingBuffer:true,antialias:false,alpha:false});
     if(!gl)throw new Error('WebGL 2 недоступен на этом устройстве');
     this.gl=gl;
@@ -32,8 +33,16 @@ export class ShaderRenderer {
     canvas.addEventListener('pointermove',this.pointer);
     canvas.addEventListener('pointerdown',this.pointer);
     canvas.addEventListener('webglcontextlost',this.contextLost);
+    canvas.addEventListener('webglcontextrestored',this.contextRestored);
   }
-  private readonly contextLost=(event:Event)=>{event.preventDefault();cancelAnimationFrame(this.raf);this.program=null;};
+  private readonly contextLost=(event:Event)=>{event.preventDefault();cancelAnimationFrame(this.raf);this.program=null;this.onContextStatus?.({ok:false,error:'Графический контекст потерян. Восстанавливаем превью…'});};
+  private readonly contextRestored=()=>{
+    if(this.disposed)return;
+    const buffer=this.gl.createBuffer();
+    if(!buffer){this.onContextStatus?.({ok:false,error:'Не удалось восстановить превью. Перезагрузите страницу.'});return}
+    this.buffer=buffer;this.gl.bindBuffer(this.gl.ARRAY_BUFFER,buffer);this.gl.bufferData(this.gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),this.gl.STATIC_DRAW);
+    if(this.compiledCode){const values={...this.values};const result=this.compile(this.compiledCode,this.parameters);this.setValues(values);this.onContextStatus?.(result)}
+  };
   private shader(type:number,source:string){const gl=this.gl,s=gl.createShader(type);if(!s)throw new Error('Не удалось создать шейдер');gl.shaderSource(s,source);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){const error=gl.getShaderInfoLog(s)||'Ошибка компиляции';gl.deleteShader(s);throw new Error(error);}return s;}
   compile(code:string,parameters:Parameter[]):{ok:boolean;error?:string;line?:number}{
     const gl=this.gl;
@@ -47,7 +56,7 @@ export class ShaderRenderer {
       gl.attachShader(program,vs);gl.attachShader(program,fs);gl.linkProgram(program);
       if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program)||'Ошибка линковки');
       if(this.program)gl.deleteProgram(this.program);this.program=program;program=null;
-      this.parameters=parameters;this.values=Object.fromEntries(parameters.map(p=>[p.name,p.default]));this.elapsed=0;this.base=performance.now();this.last=this.base;this.draw();this.schedule();return {ok:true};
+      this.compiledCode=code;this.parameters=parameters;this.values=Object.fromEntries(parameters.map(p=>[p.name,p.default]));this.elapsed=0;this.base=performance.now();this.last=this.base;this.draw();this.schedule();return {ok:true};
     }catch(e){const error=e instanceof Error?e.message:String(e);const match=error.match(/ERROR:\s*\d+:(\d+)/);return {ok:false,error,line:match?Math.max(1,Number(match[1])-header.length):undefined};}
     finally{if(vs)gl.deleteShader(vs);if(fs)gl.deleteShader(fs);if(program)gl.deleteProgram(program);}
   }
@@ -87,5 +96,5 @@ export class ShaderRenderer {
     for(const parameter of this.parameters){const value=this.values[parameter.name],location=gl.getUniformLocation(p,parameter.name);if(parameter.type==='float')gl.uniform1f(location,Number(value));else gl.uniform3fv(location,color(String(value)));}
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   }
-  destroy(){this.disposed=true;cancelAnimationFrame(this.raf);document.removeEventListener('visibilitychange',this.visibility);this.canvas.removeEventListener('pointermove',this.pointer);this.canvas.removeEventListener('pointerdown',this.pointer);this.canvas.removeEventListener('webglcontextlost',this.contextLost);if(this.program)this.gl.deleteProgram(this.program);this.gl.deleteBuffer(this.buffer);}
+  destroy(){this.disposed=true;cancelAnimationFrame(this.raf);document.removeEventListener('visibilitychange',this.visibility);this.canvas.removeEventListener('pointermove',this.pointer);this.canvas.removeEventListener('pointerdown',this.pointer);this.canvas.removeEventListener('webglcontextlost',this.contextLost);this.canvas.removeEventListener('webglcontextrestored',this.contextRestored);if(this.program)this.gl.deleteProgram(this.program);this.gl.deleteBuffer(this.buffer);}
 }
