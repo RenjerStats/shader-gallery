@@ -105,6 +105,10 @@ test('OpenRouter adapter constrains requests, validates output and sanitizes fai
   const args={model:'model/a',prompt:'Волны',controls:'',references:[]};
   const provider=createOpenRouterProvider({apiKey:'test-secret',fetchImpl:async(url,init)=>{assert.equal(url,'https://openrouter.ai/api/v1/chat/completions');payload=JSON.parse(init.body);return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(result)}}]});}});
   assert.deepEqual(await provider(args),result);assert.equal(payload.max_tokens,16000);assert.deepEqual(payload.reasoning,{effort:'high'});assert.equal(payload.messages.length,2);
+  assert.match(payload.messages[0].content,/description \(Russian, <=300 chars\)/);
+  const tooLong='Стеклянная капля переливается всеми цветами радуги. Как это сделано. '+('Технический разбор шейдера. '.repeat(30));
+  assert.equal(validateDnaResult({...result,description:tooLong}).description,'Стеклянная капля переливается всеми цветами радуги.');
+  assert.ok(validateDnaResult({...result,description:'Сияние '.repeat(100)}).description.length<=300);
   await assert.rejects(createOpenRouterProvider({apiKey:'x',fetchImpl:async()=>new Response('SECRET PROVIDER ERROR',{status:429})})(args),e=>e.code==='rate_limit'&&!e.message.includes('SECRET'));
   await assert.rejects(createOpenRouterProvider({apiKey:'x',timeoutMs:5,fetchImpl:(_,init)=>new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(new Error('abort'))))})(args),e=>e.code==='timeout');
   for(const content of ['not json',JSON.stringify({...result,code:'void mainImage(out vec4 c,in vec2 p){while(true){} c=vec4(1.);}'}),JSON.stringify({...result,parameters:[{...result.parameters[0],default:99}]})]){

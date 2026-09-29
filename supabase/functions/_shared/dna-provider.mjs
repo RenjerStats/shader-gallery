@@ -5,11 +5,21 @@ export class DnaError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
 const invalid = () => { throw new DnaError('invalid_output', 'Модель вернула несовместимый шейдер. Попробуйте другой вариант или повторите попытку.'); };
+const descriptionLimit = 300;
+function shortDescription(value) {
+  const description = value.replace(/\s+/g, ' ').trim();
+  if (description.length <= descriptionLimit) return description;
+  const firstSentence = description.match(/^.{40,299}?[.!?](?=\s|$)/u)?.[0];
+  if (firstSentence) return firstSentence;
+  const head = description.slice(0, descriptionLimit - 1);
+  const wordEnd = head.lastIndexOf(' ');
+  return `${(wordEnd > 40 ? head.slice(0, wordEnd) : head).trimEnd()}…`;
+}
 
 export function validateDnaResult(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
   const {title, description = '', code, parameters} = value;
-  if (typeof title !== 'string' || !title.trim() || title.length > 120 || typeof description !== 'string' || description.length > 2000) invalid();
+  if (typeof title !== 'string' || !title.trim() || title.length > 120 || typeof description !== 'string') invalid();
   if (typeof code !== 'string' || code.length < 20 || code.length > 30000) invalid();
   const source = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
   // The runtime supplies uniforms, main(), precision and #version. Keep a bounded,
@@ -38,12 +48,13 @@ export function validateDnaResult(value) {
     if (typeof p.name!=='string' || typeof p.label!=='string' || (p.type==='float' && [p.min,p.max,p.default].some(n=>Math.abs(n)>1000000))) invalid();
     if (/^(?:gl_|iTime$|iResolution$|iMouse$|iTilt$)/.test(p.name) || ['mainImage','main','float','int','vec2','vec3','vec4','sin','cos','length','mix','const','out','in'].includes(p.name)) invalid();
   }
-  return {title:title.trim(), description:description.trim(), code, parameters:parameters.map(p => p.type === 'float'
+  return {title:title.trim(), description:shortDescription(description), code, parameters:parameters.map(p => p.type === 'float'
     ? {name:p.name,label:p.label,type:p.type,min:p.min,max:p.max,default:p.default}
     : {name:p.name,label:p.label,type:p.type,default:p.default})};
 }
 
-const instructions = `Create a Shader Gallery artwork. Return ONLY a JSON object with title (Russian, <=120 chars), description (Russian, <=2000 chars), code and parameters.
+const instructions = `Create a Shader Gallery artwork. Return ONLY a JSON object with title (Russian, <=120 chars), description (Russian, <=300 chars), code and parameters.
+The description is a short public-facing blurb, not a place for your full response or reasoning. Write only 1-2 concise Russian sentences about what viewers see; optionally mention one way to customize the look. Never explain how the shader works, list parameters, include headings such as "How it works", repeat the prompt, or put implementation notes in the description. Keep all implementation detail in the code field.
 The code is GLSL ES 3.00 single-pass, defining void mainImage(out vec4 fragColor, in vec2 fragCoord).
 The host supplies #version, precision, main(), iTime (float), iResolution (vec3), iMouse (vec4), iTilt (vec3) and parameter uniforms. Never declare these yourself. No textures, channels, extensions, preprocessing, discard, while or do loops. Prefer no loops; if needed use at most four loops with syntax for(int i=0;i<N;i++){...} and literal N <=96. Never change a loop counter inside its body. No nested loops or out/inout helpers. Avoid expensive raymarching. Must run on mobile GLES3.
 parameters is an array (0..12) of {name,label,type:"float",min,max,default} or {name,label,type:"color",default:"#RRGGBB"}. Float uniforms are float and color uniforms are vec3. Labels are Russian. Use safe unique GLSL identifiers.
