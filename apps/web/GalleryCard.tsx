@@ -59,8 +59,9 @@ export function GalleryCard({work,index,onOpen,gyro}:{work:FeedWork;index:number
       onPointerMove={e=>{if(dragging && Math.hypot(e.clientX-touch.current.x,e.clientY-touch.current.y)>8)touch.current.moved=true}}
       >
       {work.revision.preview?<img src={work.revision.preview} alt="" loading="lazy"/>:<div className="card-fallback"/>}
-      <div className="gallery-card-art-fade"/><span className="gallery-card-category">{work.category}</span>
+      <div className="gallery-card-art-fade"/>
     </div>
+    <span className="gallery-card-category">{work.category}</span>
     <div className="gallery-card-body"><div className="gallery-card-title"><h3>{work.title}</h3><span>{work.created_at?new Date(work.created_at).getFullYear():`№ ${String(index+1).padStart(2,'0')}`}</span></div>
       <p>{work.description || `Работа в категории «${work.category}»`}</p>
       <div className="gallery-card-footer"><div className="gallery-card-tags">{(work.tags?.length?work.tags:[work.category]).slice(0,3).map(tag=><span className="gallery-card-tag" key={tag}>{tag}</span>)}</div><button className="gallery-card-open" onClick={onOpen}><Icon name="arrow"/> Открыть</button></div>

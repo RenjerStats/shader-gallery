@@ -10,7 +10,12 @@ type Job={id:string;prompt:string;controls:string;created_at:string;status:strin
 type History={items:Pick<Job,'id'|'prompt'|'created_at'|'variants'>[];next_cursor:string|null};
 type Config={enabled:boolean;max_references:number;daily_limit:number};
 type Form={prompt:string;controls:string;references:DnaReference[]};
-const message=(e:unknown)=>e instanceof Error?e.message:'Не удалось связаться с галереей';
+const message=(e:unknown)=>{
+  const text=e instanceof Error?e.message:'Не удалось связаться с галереей';
+  return text==='Неизвестное действие'||text==='Неизвестное действие DNA'
+    ?'DNA Studio пока не поддерживается подключённым сервером. Обновите сервер галереи, чтобы создавать и сохранять варианты.'
+    :text;
+};
 const href=(path:string)=>import.meta.env.BASE_URL.replace(/\/$/,'')+path;
 const go=(path:string)=>{history.pushState({},'',href(path));dispatchEvent(new PopStateEvent('popstate'));window.scrollTo(0,0)};
 const read=<T,>(key:string,fallback:T):T=>{try{return JSON.parse(localStorage.getItem(key)||'null')??fallback}catch{return fallback}};
@@ -74,7 +79,7 @@ export function DnaStudio({user,requireAuth}:{user:User|null;requireAuth:()=>voi
   }
   useEffect(()=>{
     let cancelled=false;
-    rpc<Config>('dna_config').then(c=>{if(!cancelled)setConfig(c)}).catch(e=>{if(!cancelled)setError(message(e))});
+    rpc<Config>('dna_config').then(c=>{if(!cancelled)setConfig(c)}).catch(e=>{if(!cancelled){setConfig({enabled:false,max_references:3,daily_limit:0});setError(message(e))}});
     if(user)loadHistory().then(h=>{if(cancelled||selected.current)return;const active=h?.items.find(j=>j.variants.some(v=>v.status==='queued'||v.status==='running'));const id=active?.id||read<string|null>(storageKey+':job',null);if(id)openJob(id)}).catch(e=>{if(!cancelled)setError(message(e))});
     const params=new URLSearchParams(location.search),work=params.get('work'),revision=params.get('revision');
     if(work)rpc<WorkDetail>('work',{id:work,revision_id:revision||undefined}).then(({work:w})=>{if(cancelled)return;setForm(prev=>prev.references.some(r=>r.revision_id===w.revision.id)?prev:{...prev,references:[...prev.references.slice(0,2),{work_id:w.id,revision_id:w.revision.id,title:w.title,author:w.author.display_name,author_id:w.author_id,license:w.revision.license}]})}).catch(e=>{if(!cancelled)setError(message(e))});

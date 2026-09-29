@@ -111,7 +111,7 @@ class MainActivity:Activity() {
             SensorManager.getOrientation(matrix,angles)
             val x=(Math.toDegrees(angles[1].toDouble()).toFloat()*0.28f).coerceIn(-11f,11f)
             val y=(Math.toDegrees(angles[2].toDouble()).toFloat()*0.28f).coerceIn(-11f,11f)
-            for(i in 0 until galleryList.childCount){galleryList.getChildAt(i).rotationX=x;galleryList.getChildAt(i).rotationY=y}
+            for(i in 0 until galleryList.childCount)(galleryList.getChildAt(i) as? GalleryTiltCard)?.setTilt(x,y)
         }
     }
     private fun dp(n:Int)=(n*resources.displayMetrics.density).roundToInt()
@@ -317,7 +317,7 @@ class MainActivity:Activity() {
             override fun onNothingSelected(parent:android.widget.AdapterView<*>?){}
         }
         content.addView(category,LinearLayout.LayoutParams(-1,dp(48)).apply {topMargin=dp(4)})
-        gyroButton=button("Покрутить карточки"){galleryGyro=!galleryGyro;gyroButton.text=if(galleryGyro)"Выключить наклон" else "Покрутить карточки";if(galleryGyro){if(rotationSensor==null){galleryGyro=false;gyroButton.text="Гироскоп недоступен"}else startGalleryGyro()}else{gallerySensor.unregisterListener(gallerySensorListener);for(i in 0 until galleryList.childCount){galleryList.getChildAt(i).animate().rotationX(0f).rotationY(0f).setDuration(300).start()}}}
+        gyroButton=button("Покрутить карточки"){galleryGyro=!galleryGyro;gyroButton.text=if(galleryGyro)"Выключить наклон" else "Покрутить карточки";if(galleryGyro){if(rotationSensor==null){galleryGyro=false;gyroButton.text="Гироскоп недоступен"}else startGalleryGyro()}else{gallerySensor.unregisterListener(gallerySensorListener);for(i in 0 until galleryList.childCount)(galleryList.getChildAt(i) as? GalleryTiltCard)?.resetTilt()}}
         gyroButton.textSize=12f;content.addView(gyroButton,LinearLayout.LayoutParams(-2,dp(40)).apply {topMargin=dp(10);bottomMargin=dp(8)})
         galleryStatus=text("Потяните вниз, чтобы обновить галерею.",13f,muted).apply {accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE};content.addView(galleryStatus)
         gallerySignIn=button("Войти"){showAuthDialog()}.apply {visibility=View.GONE};content.addView(gallerySignIn,LinearLayout.LayoutParams(-1,dp(48)))
@@ -452,17 +452,30 @@ class MainActivity:Activity() {
             }}
         }.start()
     }
+    private inner class GalleryTiltCard(context:Context):FrameLayout(context) {
+        var image:ImageView?=null
+        fun setTilt(x:Float,y:Float){
+            rotationX=x;rotationY=y
+            image?.translationX=-y*dp(1).toFloat()
+            image?.translationY=x*dp(1).toFloat()
+        }
+        fun resetTilt(){
+            animate().rotationX(0f).rotationY(0f).setDuration(320).start()
+            image?.animate()?.translationX(0f)?.translationY(0f)?.setDuration(320)?.start()
+        }
+    }
     private fun galleryCard(work:GalleryCard):View {
-        val card=FrameLayout(this).apply {tag=work.id;contentDescription="Открыть работу ${work.title}";isClickable=true;isFocusable=true;setOnClickListener {load(gallerySource ?: return@setOnClickListener,work.id,work.revisionId)};elevation=dp(8).toFloat();cameraDistance=dp(1200).toFloat()}
+        val card=GalleryTiltCard(this).apply {tag=work.id;contentDescription="Открыть работу ${work.title}";isClickable=true;isFocusable=true;setOnClickListener {load(gallerySource ?: return@setOnClickListener,work.id,work.revisionId)};elevation=dp(8).toFloat();cameraDistance=dp(1200).toFloat()}
         val columns=galleryList.columnCount
         val artSize=(resources.configuration.screenWidthDp-40-(columns-1)*12)/columns
         val accent=when(work.category){"Природа"->Color.rgb(96,172,139);"Геометрия"->Color.rgb(108,139,238);"Свет"->Color.rgb(235,153,106);else->Color.rgb(140,112,230)}
         val backing=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(Color.argb(if(darkMode)50 else 28,Color.red(accent),Color.green(accent),Color.blue(accent)),surface,surface)).apply {cornerRadius=dp(26).toFloat();setStroke(dp(1),line)}
         card.background=backing;card.clipToOutline=true
-        val inner=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(20),0,dp(20),dp(18))}
+        val inner=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;clipChildren=false;setPadding(dp(20),0,dp(20),dp(18))}
         card.addView(inner,FrameLayout.LayoutParams(-1,-2))
         val art=FrameLayout(this).apply {clipChildren=true;clipToPadding=true}
-        val image=ImageView(this).apply {work.thumbnail()?.let {setImageBitmap(it)};scaleType=ImageView.ScaleType.CENTER_CROP;background=rounded(accent,accent,20)}
+        val image=ImageView(this).apply {work.thumbnail()?.let {setImageBitmap(it)};scaleType=ImageView.ScaleType.CENTER_CROP;background=rounded(accent,accent,20);scaleX=1.12f;scaleY=1.12f}
+        card.image=image
         art.addView(image,FrameLayout.LayoutParams(-1,-1))
         art.addView(View(this).apply {background=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(Color.TRANSPARENT,Color.TRANSPARENT,surface))},FrameLayout.LayoutParams(-1,-1))
         art.setOnTouchListener(object:View.OnTouchListener {
@@ -472,11 +485,11 @@ class MainActivity:Activity() {
                     MotionEvent.ACTION_DOWN->{startX=event.x;startY=event.y;moved=false;return true}
                     MotionEvent.ACTION_MOVE->{
                         if(kotlin.math.abs(event.x-startX)>dp(7)||kotlin.math.abs(event.y-startY)>dp(7))moved=true
-                        if(moved){card.animate().cancel();card.rotationY=((event.x/view.width)-.5f)*26f;card.rotationX=(.5f-(event.y/view.height))*26f;image.translationX=-card.rotationY*.55f;image.translationY=card.rotationX*.55f}
+                        if(moved){card.animate().cancel();image.animate().cancel();card.setTilt((.5f-(event.y/view.height))*26f,((event.x/view.width)-.5f)*26f)}
                         return true
                     }
-                    MotionEvent.ACTION_UP->{if(!moved)card.performClick();card.animate().rotationX(0f).rotationY(0f).setDuration(320).start();image.animate().translationX(0f).translationY(0f).setDuration(320).start();return true}
-                    MotionEvent.ACTION_CANCEL->{card.animate().rotationX(0f).rotationY(0f).setDuration(320).start();image.animate().translationX(0f).translationY(0f).setDuration(320).start();return true}
+                    MotionEvent.ACTION_UP->{if(!moved)card.performClick();card.resetTilt();return true}
+                    MotionEvent.ACTION_CANCEL->{card.resetTilt();return true}
                 };return false
             }
         })
@@ -484,13 +497,13 @@ class MainActivity:Activity() {
         val heading=LinearLayout(this).apply {gravity=Gravity.CENTER_VERTICAL}
         heading.addView(text(work.title,22f,ink,true).apply {maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,0,0,0)},LinearLayout.LayoutParams(0,-2,1f))
         heading.addView(text(work.createdAt.take(4),10f,muted).apply {letterSpacing=.12f})
-        inner.addView(heading)
+        heading.translationZ=dp(16).toFloat();inner.addView(heading)
         inner.addView(text(work.description.ifBlank {"Работа в категории «${work.category}»"},12f,muted).apply {maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,dp(5),0,dp(13))})
         val foot=LinearLayout(this).apply {gravity=Gravity.CENTER_VERTICAL}
         foot.addView(text(work.tags.firstOrNull() ?: work.category,11f,muted).apply {maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;background=rounded(if(darkMode)Color.rgb(36,37,47) else Color.rgb(245,245,243),line,18);setPadding(dp(12),dp(7),dp(12),dp(7))},LinearLayout.LayoutParams(0,-2,1f))
         foot.addView(View(this),LinearLayout.LayoutParams(0,1,1f))
         foot.addView(button("Открыть"){load(gallerySource ?: return@button,work.id,work.revisionId)},LinearLayout.LayoutParams(-2,dp(42)))
-        inner.addView(foot)
+        foot.translationZ=dp(14).toFloat();inner.addView(foot)
         inner.addView(text("by ${work.author}",11f,muted).apply {setPadding(0,dp(18),0,0)})
         return card
     }

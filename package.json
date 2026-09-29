@@ -16,6 +16,7 @@
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.38.4",
     "@electric-sql/pglite": "^0.3.14",
+    "@lezer/highlight": "^1.2.5",
     "@supabase/supabase-js": "^2.57.4",
     "codemirror": "^6.0.2",
     "idb": "^8.0.3",
