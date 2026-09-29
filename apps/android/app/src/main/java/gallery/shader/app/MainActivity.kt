@@ -76,6 +76,7 @@ class MainActivity:Activity() {
     private lateinit var search:EditText
     private lateinit var category:Spinner
     private lateinit var more:Button
+    private lateinit var gyroButton:Button
     private lateinit var newTab:Button
     private lateinit var curatedTab:Button
     private lateinit var followingTab:Button
@@ -97,12 +98,29 @@ class MainActivity:Activity() {
     private var viewerId:String?=null
     private var sessionGeneration=0
     private val categories=listOf("Все категории","Абстракция","Природа","Геометрия","Свет","Другое")
+    private val visualPrefs by lazy {getSharedPreferences("gallery_visual",Context.MODE_PRIVATE)}
+    private val darkMode get()=visualPrefs.getBoolean("dark",false)
+    private var galleryGyro=false
+    private val gallerySensor by lazy {getSystemService(Context.SENSOR_SERVICE) as SensorManager}
+    private val rotationSensor by lazy {gallerySensor.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)}
+    private val gallerySensorListener=object:SensorEventListener {
+        override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int){}
+        override fun onSensorChanged(event:SensorEvent){
+            val matrix=FloatArray(9);val angles=FloatArray(3)
+            SensorManager.getRotationMatrixFromVector(matrix,event.values)
+            SensorManager.getOrientation(matrix,angles)
+            val x=(Math.toDegrees(angles[1].toDouble()).toFloat()*0.28f).coerceIn(-11f,11f)
+            val y=(Math.toDegrees(angles[2].toDouble()).toFloat()*0.28f).coerceIn(-11f,11f)
+            for(i in 0 until galleryList.childCount){galleryList.getChildAt(i).rotationX=x;galleryList.getChildAt(i).rotationY=y}
+        }
+    }
     private fun dp(n:Int)=(n*resources.displayMetrics.density).roundToInt()
-    private val ink=Color.rgb(34,33,32)
-    private val muted=Color.rgb(112,109,105)
-    private val paper=Color.rgb(248,246,242)
-    private val blue=Color.rgb(40,76,237)
-    private val line=Color.rgb(229,228,220)
+    private val ink get()=if(darkMode)Color.rgb(238,240,248) else Color.rgb(34,33,32)
+    private val muted get()=if(darkMode)Color.rgb(159,164,184) else Color.rgb(112,109,105)
+    private val paper get()=if(darkMode)Color.rgb(8,8,14) else Color.rgb(248,246,242)
+    private val blue get()=if(darkMode)Color.rgb(120,136,255) else Color.rgb(40,76,237)
+    private val line get()=if(darkMode)Color.rgb(48,49,61) else Color.rgb(229,228,220)
+    private val surface get()=if(darkMode)Color.rgb(24,25,34) else Color.rgb(255,254,250)
     private val displayFont by lazy {resources.getFont(R.font.lora)}
     private val bodyFont by lazy {resources.getFont(R.font.manrope)}
     private val mediumFont by lazy {resources.getFont(R.font.manrope_medium)}
@@ -112,17 +130,17 @@ class MainActivity:Activity() {
     private fun button(value:String,primary:Boolean=false,action:()->Unit)=Button(this).apply {
         text=value;textSize=14f;isAllCaps=false;typeface=mediumFont
         setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled),intArrayOf()),intArrayOf(muted,if(primary)Color.WHITE else ink)))
-        val surface=android.graphics.drawable.StateListDrawable().apply {
-            addState(intArrayOf(-android.R.attr.state_enabled),rounded(if(primary)Color.rgb(227,228,233) else Color.TRANSPARENT,line,28))
-            addState(intArrayOf(),rounded(if(primary)blue else Color.TRANSPARENT,if(primary)blue else line,28))
+        val buttonDrawable=android.graphics.drawable.StateListDrawable().apply {
+            addState(intArrayOf(-android.R.attr.state_enabled),rounded(if(primary)Color.rgb(90,92,105) else surface,line,16))
+            addState(intArrayOf(),rounded(if(primary)blue else surface,if(primary)blue else line,16))
         }
-        background=RippleDrawable(ColorStateList.valueOf(0x14000000),surface,null)
+        background=RippleDrawable(ColorStateList.valueOf(0x14000000),buttonDrawable,null)
         backgroundTintList=null;stateListAnimator=null;minHeight=dp(48);minimumWidth=0;minWidth=0
         setPadding(dp(16),0,dp(16),0);setOnClickListener{action()}
     }
     private fun icon(name:String,label:String,action:()->Unit)=ImageButton(this).apply {
         setImageDrawable(GalleryIcon(name,ink));contentDescription=label;setPadding(dp(13),dp(13),dp(13),dp(13))
-        background=RippleDrawable(ColorStateList.valueOf(0x18000000),null,rounded(Color.WHITE));setOnClickListener{action()}
+        background=RippleDrawable(ColorStateList.valueOf(0x18000000),null,rounded(surface,line,14));setOnClickListener{action()}
     }
     private fun row()=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(20),0,dp(20),dp(16))}
     private fun card()=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL}
@@ -134,9 +152,10 @@ class MainActivity:Activity() {
     }
     private fun styleSlider(slider:SeekBar){slider.progressTintList=ColorStateList.valueOf(blue);slider.thumbTintList=ColorStateList.valueOf(blue);slider.progressBackgroundTintList=ColorStateList.valueOf(line);slider.minimumHeight=dp(48)}
     override fun onCreate(savedInstanceState:Bundle?){
+        if(darkMode)setTheme(R.style.GalleryThemeDark)
         super.onCreate(savedInstanceState)
         window.statusBarColor=paper;window.navigationBarColor=paper
-        window.decorView.systemUiVisibility=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        window.decorView.systemUiVisibility=if(darkMode)0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         val shell=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(paper)}
         setContentView(shell)
         shell.setOnApplyWindowInsetsListener { _,insets ->
@@ -157,6 +176,7 @@ class MainActivity:Activity() {
         toolbar.addView(saveButton,LinearLayout.LayoutParams(dp(48),dp(48)))
         val account=icon("account","Аккаунт"){showAccount()}
         toolbar.addView(account,LinearLayout.LayoutParams(dp(48),dp(48)))
+        toolbar.addView(icon("settings","Настройки отображения"){showVisualSettings()},LinearLayout.LayoutParams(dp(48),dp(48)))
         shell.addView(toolbar,LinearLayout.LayoutParams(-1,dp(56)))
         status=text("",13f,muted).apply {visibility=View.GONE;setPadding(dp(20),dp(6),dp(20),dp(6));accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE}
         status.addTextChangedListener(object:android.text.TextWatcher {
@@ -189,11 +209,11 @@ class MainActivity:Activity() {
         preview=GalleryPreview(this){ok,message->runOnUiThread{ready=ok;apply.isEnabled=ok;status.text=if(ok)"" else message}}
         previewFrame.addView(preview,FrameLayout.LayoutParams(-1,-1))
         val pause=icon(if(preview.isPaused)"play" else "pause",if(preview.isPaused)"Включить движение" else "Приостановить движение"){}
-        pause.background=RippleDrawable(ColorStateList.valueOf(0x14000000),android.graphics.drawable.InsetDrawable(rounded(0xeef8f6f2.toInt(),0xeef8f6f2.toInt(),18),dp(6)),null)
+        pause.background=RippleDrawable(ColorStateList.valueOf(0x14000000),android.graphics.drawable.InsetDrawable(rounded(surface,surface,18),dp(6)),null)
         pause.setPadding(dp(15),dp(15),dp(15),dp(15))
         pause.setOnClickListener {preview.setPaused(!preview.isPaused);pause.setImageDrawable(GalleryIcon(if(preview.isPaused)"play" else "pause",ink));pause.contentDescription=if(preview.isPaused)"Включить движение" else "Приостановить движение"}
         previewFrame.addView(pause,FrameLayout.LayoutParams(dp(48),dp(48),Gravity.TOP or Gravity.END).apply {topMargin=dp(12);rightMargin=dp(12)})
-        val caption=row().apply {setPadding(dp(20),dp(40),dp(20),dp(16));background=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(0x00f8f6f2,0xeef8f6f2.toInt(),paper))}
+        val caption=row().apply {setPadding(dp(20),dp(40),dp(20),dp(16));background=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(Color.TRANSPARENT,Color.argb(235,Color.red(paper),Color.green(paper),Color.blue(paper)),paper))}
         title=text("",24f,ink,true).apply {maxLines=3;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,0,0,dp(5))};caption.addView(title)
         byline=text("",12f,muted).apply {setPadding(0,0,0,0)};caption.addView(byline);previewFrame.addView(caption,FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM))
         controls=row();detailSection.addView(controls)
@@ -232,6 +252,18 @@ class MainActivity:Activity() {
             }
         }.start()
     }
+    private fun showVisualSettings(){
+        AlertDialog.Builder(this).setTitle("Оформление галереи")
+            .setSingleChoiceItems(arrayOf("Светлая тема","Тёмная тема"),if(darkMode)1 else 0){dialog,which->
+                dialog.dismiss();if(darkMode!=(which==1)){visualPrefs.edit().putBoolean("dark",which==1).apply();recreate()}
+            }
+            .setNeutralButton("Вариант B · эксперимент"){_,_->
+                AlertDialog.Builder(this).setTitle("Вариант B")
+                    .setMessage("3D-зал пока доступен только в отдельном экспериментальном макете.")
+                    .setPositiveButton("Понятно",null).show()
+            }.setNegativeButton("Закрыть",null).show()
+    }
+    private fun startGalleryGyro(){rotationSensor?.let {gallerySensor.registerListener(gallerySensorListener,it,SensorManager.SENSOR_DELAY_UI)}}
     private fun showPanel(label:String,panel:LinearLayout){
         (panel.parent as? android.view.ViewGroup)?.removeView(panel)
         val scroll=ScrollView(this).apply {addView(panel)}
@@ -241,6 +273,7 @@ class MainActivity:Activity() {
         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {type="text/plain";putExtra(Intent.EXTRA_TEXT,"$source/works/${shader.workId}?revision=${shader.revisionId}")},"Поделиться"))
     }
     private fun showGallery(){
+        if(galleryGyro)startGalleryGyro()
         brandMark.visibility=View.VISIBLE;toolbarTitle.textSize=20f
         loadGeneration++;detailOpen=false;detailSection.visibility=View.GONE;bottomBar.visibility=View.GONE;backButton.visibility=View.GONE;saveButton.visibility=View.GONE;gallerySection.visibility=View.VISIBLE;status.text=""
         if(previewRunning){preview.stop();previewRunning=false};window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -262,17 +295,19 @@ class MainActivity:Activity() {
     }
     override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);handleIntent(intent)}
     private fun buildGallery(content:LinearLayout){
-        content.addView(text("Галерея",32f,ink,true).apply {setPadding(0,dp(14),0,dp(16))})
-        content.addView(button("DNA Studio · создать по идее"){openDna()},LinearLayout.LayoutParams(-1,dp(48)).apply {bottomMargin=dp(12)})
+        content.addView(text("SHADER GALLERY · ИСКУССТВО КОДА",10f,muted).apply {letterSpacing=.18f;setPadding(0,dp(23),0,dp(7))})
+        content.addView(text("Галерея живой\nграфики",32f,ink,true).apply {setPadding(0,0,0,dp(5))})
+        content.addView(text("Шейдеры, визуальные эксперименты и миры, созданные кодом.",13f,muted).apply {setPadding(0,0,0,dp(13))})
+        content.addView(button("Создать с DNA Studio"){openDna()},LinearLayout.LayoutParams(-1,dp(46)).apply {bottomMargin=dp(19)})
         val tabs=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
         newTab=button("Новое"){galleryMode="new";updateTabs();loadGallery(false)}
         curatedTab=button("Подборка"){galleryMode="curated";updateTabs();loadGallery(false)}
         followingTab=button("Подписки"){galleryMode="following";updateTabs();loadGallery(false)}
         savedTab=button("Сохранённое"){galleryMode="saved";updateTabs();loadGallery(false)}
-        listOf(newTab,curatedTab,followingTab,savedTab).forEach {tab->tab.textSize=13f;tab.typeface=bodyFont;tab.setPadding(dp(10),0,dp(10),0);tabs.addView(tab,LinearLayout.LayoutParams(-2,dp(48)))}
+        listOf(newTab,curatedTab,followingTab,savedTab).forEach {tab->tab.textSize=12f;tab.typeface=mediumFont;tab.setPadding(dp(16),0,dp(16),0);tabs.addView(tab,LinearLayout.LayoutParams(-2,dp(40)).apply {rightMargin=dp(7)})}
         content.addView(HorizontalScrollView(this).apply {isHorizontalScrollBarEnabled=false;addView(tabs)});updateTabs()
         val filters=LinearLayout(this).apply {gravity=Gravity.CENTER_VERTICAL}
-        search=EditText(this).apply {hint="Поиск работ";contentDescription="Поиск по названию или тегу";setSingleLine(true);setTextColor(ink);setHintTextColor(muted);textSize=14f;background=rounded(Color.TRANSPARENT,line,24);setPadding(dp(16),0,dp(16),0);imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH;setOnEditorActionListener {_,_,_->submitSearch();true}}
+        search=EditText(this).apply {hint="Поиск шейдеров, тегов и авторов";contentDescription="Поиск по названию или тегу";setSingleLine(true);setTextColor(ink);setHintTextColor(muted);textSize=13f;background=rounded(surface,line,16);setPadding(dp(16),0,dp(16),0);imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH;setOnEditorActionListener {_,_,_->submitSearch();true}}
         filters.addView(search,LinearLayout.LayoutParams(0,dp(48),1f))
         filters.addView(icon("search","Найти работы"){submitSearch()},LinearLayout.LayoutParams(dp(48),dp(48)))
         content.addView(filters,LinearLayout.LayoutParams(-1,-2).apply {topMargin=dp(14)})
@@ -282,19 +317,18 @@ class MainActivity:Activity() {
             override fun onNothingSelected(parent:android.widget.AdapterView<*>?){}
         }
         content.addView(category,LinearLayout.LayoutParams(-1,dp(48)).apply {topMargin=dp(4)})
+        gyroButton=button("Покрутить карточки"){galleryGyro=!galleryGyro;gyroButton.text=if(galleryGyro)"Выключить наклон" else "Покрутить карточки";if(galleryGyro){if(rotationSensor==null){galleryGyro=false;gyroButton.text="Гироскоп недоступен"}else startGalleryGyro()}else{gallerySensor.unregisterListener(gallerySensorListener);for(i in 0 until galleryList.childCount){galleryList.getChildAt(i).animate().rotationX(0f).rotationY(0f).setDuration(300).start()}}}
+        gyroButton.textSize=12f;content.addView(gyroButton,LinearLayout.LayoutParams(-2,dp(40)).apply {topMargin=dp(10);bottomMargin=dp(8)})
         galleryStatus=text("Потяните вниз, чтобы обновить галерею.",13f,muted).apply {accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE};content.addView(galleryStatus)
         gallerySignIn=button("Войти"){showAuthDialog()}.apply {visibility=View.GONE};content.addView(gallerySignIn,LinearLayout.LayoutParams(-1,dp(48)))
-        galleryList=android.widget.GridLayout(this).apply {columnCount=if(resources.configuration.screenWidthDp>=340 && resources.configuration.fontScale<1.4f)2 else 1};content.addView(galleryList)
+        galleryList=android.widget.GridLayout(this).apply {columnCount=if(resources.configuration.screenWidthDp>=700 && resources.configuration.fontScale<1.4f)2 else 1};content.addView(galleryList)
         more=button("Показать ещё"){loadGallery(true)}.apply {visibility=View.GONE};content.addView(more,LinearLayout.LayoutParams(-1,dp(48)).apply {topMargin=dp(16)})
     }
     private fun submitSearch(){(getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(search.windowToken,0);search.clearFocus();loadGallery(false)}
     private fun updateTabs(){
         listOf("new" to newTab,"curated" to curatedTab,"following" to followingTab,"saved" to savedTab).forEach {(mode,tab)->
             val active=galleryMode==mode;tab.isSelected=active;tab.setTextColor(if(active)ink else muted)
-            tab.background=RippleDrawable(ColorStateList.valueOf(0x18000000),object:Drawable(){
-                override fun draw(canvas:Canvas){if(active){val p=Paint(Paint.ANTI_ALIAS_FLAG).apply {color=Color.rgb(194,246,74)};canvas.drawRect(bounds.left+dp(10).toFloat(),bounds.bottom-dp(3).toFloat(),bounds.right-dp(10).toFloat(),bounds.bottom.toFloat(),p)}}
-                override fun setAlpha(alpha:Int){};override fun setColorFilter(filter:android.graphics.ColorFilter?){};override fun getOpacity()=android.graphics.PixelFormat.TRANSLUCENT
-            },rounded(Color.WHITE))
+            tab.background=RippleDrawable(ColorStateList.valueOf(0x18000000),rounded(if(active)if(darkMode)Color.rgb(38,43,74) else Color.rgb(233,235,255) else surface,if(active)blue else line,22),null)
         }
     }
     private fun loadSession(source:String){
@@ -419,12 +453,45 @@ class MainActivity:Activity() {
         }.start()
     }
     private fun galleryCard(work:GalleryCard):View {
-        val card=card().apply {tag=work.id;contentDescription="Открыть работу ${work.title}";isClickable=true;isFocusable=true;setOnClickListener {load(gallerySource ?: return@setOnClickListener,work.id,work.revisionId)}}
+        val card=FrameLayout(this).apply {tag=work.id;contentDescription="Открыть работу ${work.title}";isClickable=true;isFocusable=true;setOnClickListener {load(gallerySource ?: return@setOnClickListener,work.id,work.revisionId)};elevation=dp(8).toFloat();cameraDistance=dp(1200).toFloat()}
         val columns=galleryList.columnCount
         val artSize=(resources.configuration.screenWidthDp-40-(columns-1)*12)/columns
-        card.addView(ImageView(this).apply {work.thumbnail()?.let {setImageBitmap(it)};scaleType=ImageView.ScaleType.CENTER_CROP;background=rounded(Color.rgb(231,232,236),Color.rgb(231,232,236),12);clipToOutline=true},LinearLayout.LayoutParams(-1,dp(artSize)).apply {bottomMargin=dp(9)})
-        card.addView(text(work.title,16f,ink,true).apply {maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,0,0,dp(4))})
-        card.addView(text(work.author,11f,muted).apply {maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,0,0,dp(4))})
+        val accent=when(work.category){"Природа"->Color.rgb(96,172,139);"Геометрия"->Color.rgb(108,139,238);"Свет"->Color.rgb(235,153,106);else->Color.rgb(140,112,230)}
+        val backing=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(Color.argb(if(darkMode)50 else 28,Color.red(accent),Color.green(accent),Color.blue(accent)),surface,surface)).apply {cornerRadius=dp(26).toFloat();setStroke(dp(1),line)}
+        card.background=backing;card.clipToOutline=true
+        val inner=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(20),0,dp(20),dp(18))}
+        card.addView(inner,FrameLayout.LayoutParams(-1,-2))
+        val art=FrameLayout(this).apply {clipChildren=true;clipToPadding=true}
+        val image=ImageView(this).apply {work.thumbnail()?.let {setImageBitmap(it)};scaleType=ImageView.ScaleType.CENTER_CROP;background=rounded(accent,accent,20)}
+        art.addView(image,FrameLayout.LayoutParams(-1,-1))
+        art.addView(View(this).apply {background=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(Color.TRANSPARENT,Color.TRANSPARENT,surface))},FrameLayout.LayoutParams(-1,-1))
+        art.setOnTouchListener(object:View.OnTouchListener {
+            var startX=0f;var startY=0f;var moved=false
+            override fun onTouch(view:View,event:MotionEvent):Boolean {
+                when(event.actionMasked){
+                    MotionEvent.ACTION_DOWN->{startX=event.x;startY=event.y;moved=false;return true}
+                    MotionEvent.ACTION_MOVE->{
+                        if(kotlin.math.abs(event.x-startX)>dp(7)||kotlin.math.abs(event.y-startY)>dp(7))moved=true
+                        if(moved){card.animate().cancel();card.rotationY=((event.x/view.width)-.5f)*26f;card.rotationX=(.5f-(event.y/view.height))*26f;image.translationX=-card.rotationY*.55f;image.translationY=card.rotationX*.55f}
+                        return true
+                    }
+                    MotionEvent.ACTION_UP->{if(!moved)card.performClick();card.animate().rotationX(0f).rotationY(0f).setDuration(320).start();image.animate().translationX(0f).translationY(0f).setDuration(320).start();return true}
+                    MotionEvent.ACTION_CANCEL->{card.animate().rotationX(0f).rotationY(0f).setDuration(320).start();image.animate().translationX(0f).translationY(0f).setDuration(320).start();return true}
+                };return false
+            }
+        })
+        inner.addView(art,LinearLayout.LayoutParams(-1,dp(if(columns==1)260 else 230)).apply {leftMargin=-dp(20);rightMargin=-dp(20)})
+        val heading=LinearLayout(this).apply {gravity=Gravity.CENTER_VERTICAL}
+        heading.addView(text(work.title,22f,ink,true).apply {maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,0,0,0)},LinearLayout.LayoutParams(0,-2,1f))
+        heading.addView(text(work.createdAt.take(4),10f,muted).apply {letterSpacing=.12f})
+        inner.addView(heading)
+        inner.addView(text(work.description.ifBlank {"Работа в категории «${work.category}»"},12f,muted).apply {maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,dp(5),0,dp(13))})
+        val foot=LinearLayout(this).apply {gravity=Gravity.CENTER_VERTICAL}
+        foot.addView(text(work.tags.firstOrNull() ?: work.category,11f,muted).apply {maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;background=rounded(if(darkMode)Color.rgb(36,37,47) else Color.rgb(245,245,243),line,18);setPadding(dp(12),dp(7),dp(12),dp(7))},LinearLayout.LayoutParams(0,-2,1f))
+        foot.addView(View(this),LinearLayout.LayoutParams(0,1,1f))
+        foot.addView(button("Открыть"){load(gallerySource ?: return@button,work.id,work.revisionId)},LinearLayout.LayoutParams(-2,dp(42)))
+        inner.addView(foot)
+        inner.addView(text("by ${work.author}",11f,muted).apply {setPadding(0,dp(18),0,0)})
         return card
     }
     private fun handleIntent(intent:Intent?){
@@ -481,6 +548,7 @@ class MainActivity:Activity() {
         }.start()
     }
     private fun showPackage(shader:ShaderPackage,fromNetwork:Boolean){
+        gallerySensor.unregisterListener(gallerySensorListener)
         brandMark.visibility=View.GONE;toolbarTitle.textSize=18f
         if(!detailOpen)galleryScrollY=rootScroll.scrollY
         detailOpen=true;gallerySection.visibility=View.GONE;detailSection.visibility=View.VISIBLE;bottomBar.visibility=View.VISIBLE;backButton.visibility=View.VISIBLE;saveButton.visibility=View.VISIBLE
@@ -617,8 +685,8 @@ class MainActivity:Activity() {
             .putExtra("work_id",shader?.workId).putExtra("revision_id",shader?.revisionId))
     }
     private fun installWallpaper(){val shader=current ?: return;if(!ready)return;PackageStore.saveValues(this,shader,values);PackageStore.select(this,shader);val intent=Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,ComponentName(this,GalleryWallpaperService::class.java));try{startActivity(intent)}catch(e:Exception){status.text="Не удалось открыть системный экран обоев: ${e.message}"}}
-    override fun onResume(){super.onResume();resumed=true;if(current!=null && detailOpen){window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);if(::preview.isInitialized && !previewRunning){preview.start();previewRunning=true}}}
-    override fun onPause(){resumed=false;if(previewRunning){preview.stop();previewRunning=false};window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);super.onPause()}
+    override fun onResume(){super.onResume();resumed=true;if(galleryGyro && !detailOpen)startGalleryGyro();if(current!=null && detailOpen){window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);if(::preview.isInitialized && !previewRunning){preview.start();previewRunning=true}}}
+    override fun onPause(){resumed=false;gallerySensor.unregisterListener(gallerySensorListener);if(previewRunning){preview.stop();previewRunning=false};window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);super.onPause()}
 }
 
 internal class GalleryPreview(context:Activity,private val onStatus:(Boolean,String)->Unit):GLSurfaceView(context),GLSurfaceView.Renderer,SensorEventListener {

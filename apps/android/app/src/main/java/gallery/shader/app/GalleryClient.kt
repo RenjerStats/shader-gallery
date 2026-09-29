@@ -16,6 +16,9 @@ import java.util.UUID
 data class GalleryCard(
     val id:String,
     val title:String,
+    val description:String,
+    val tags:List<String>,
+    val createdAt:String,
     val author:String,
     val category:String,
     val revisionId:String,
@@ -27,6 +30,9 @@ data class GalleryCard(
             return GalleryCard(
                 UUID.fromString(json.getString("id")).toString(),
                 json.getString("title"),
+                json.optString("description"),
+                json.optJSONArray("tags")?.let {array->(0 until array.length()).map {array.optString(it)}} ?: emptyList(),
+                json.optString("created_at"),
                 json.getJSONObject("author").getString("display_name"),
                 json.getString("category"),
                 UUID.fromString(revision.getString("id")).toString(),

@@ -10,6 +10,13 @@
         <item name="android:buttonBarNeutralButtonStyle">@style/GalleryDialogButton</item>
     </style>
     <style name="GalleryTheme" parent="GalleryThemeBase"/>
+    <style name="GalleryThemeDark" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">@font/manrope</item>
+        <item name="android:colorAccent">#7888FF</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">#08080E</item>
+        <item name="android:colorControlHighlight">#307888FF</item>
+    </style>
     <style name="GalleryDialogButton" parent="android:style/Widget.Material.Light.Button.Borderless">
         <item name="android:textAllCaps">false</item>
         <item name="android:fontFamily">@font/manrope</item>

@@ -97,11 +97,11 @@ export function createStore(db,options={}) {
       if(p.author_id){if(!uuid(p.author_id)) fail('Некорректный автор');args.push(p.author_id);where+=` and w.author_id=$${args.length}`;}
       if(p.cursor){if(!uuid(p.cursor.id)||!p.cursor.created_at) fail('Некорректная страница');args.push(p.cursor.created_at,p.cursor.id);where+=` and (w.created_at,w.id)<($${args.length-1}::timestamptz,$${args.length}::uuid)`;}
       args.push(limit+1);
-      const selected=await rows(db,`select w.id,w.author_id,w.title,w.category,w.created_at,u.display_name,r.id as revision_id,r.preview
+      const selected=await rows(db,`select w.id,w.author_id,w.title,w.description,w.tags,w.category,w.created_at,u.display_name,r.id as revision_id,r.preview
         from works w join users u on u.id=w.author_id join revisions r on r.id=w.current_revision_id
         where ${where} order by w.created_at desc,w.id desc limit $${args.length}`,args);
       const page=selected.slice(0,limit);
-      const items=page.map(w=>({id:w.id,author_id:w.author_id,title:w.title,category:w.category,
+      const items=page.map(w=>({id:w.id,author_id:w.author_id,title:w.title,description:w.description,tags:w.tags,category:w.category,created_at:iso(w.created_at),
         author:{display_name:w.display_name},revision:{id:w.revision_id,preview:w.preview}}));
       const last=page.at(-1);
       return {items,next_cursor:selected.length>limit&&last?{created_at:iso(last.created_at),id:last.id}:null};

@@ -17,6 +17,9 @@ test('two users can publish, discover, discuss, save and remix a version',async(
     const feed=await s.rpc(null,'feed',{query:'Первый'});
     assert.equal(feed.items.length,1);
     assert.equal(feed.items[0].author_id,a.id);
+    assert.equal(feed.items[0].description,'Тестовая работа');
+    assert.deepEqual(feed.items[0].tags,['цвет']);
+    assert.ok(feed.items[0].created_at);
     const detail=await s.rpc(b.id,'work',{id:publish.work_id});
     assert.equal(detail.work.revision.id,publish.revision_id);
     await s.rpc(b.id,'follow',{author_id:a.id,active:true});

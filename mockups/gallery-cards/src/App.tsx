@@ -28,6 +28,7 @@ function useNarrow() {
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('web-minimal');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const narrow = useNarrow();
 
   useEffect(() => {
@@ -58,6 +59,17 @@ export default function App() {
         ) : (
           <PhoneShell dark="#140d07"><MobileGallery /></PhoneShell>
         ))}
+
+      <button className="mockup-settings-button" onClick={() => setSettingsOpen(true)}>Настройки отображения</button>
+      {settingsOpen && <div className="mockup-settings-backdrop" onClick={(event) => {if (event.target === event.currentTarget) setSettingsOpen(false)}}>
+        <div className="mockup-settings" role="dialog" aria-modal="true" aria-label="Настройки отображения">
+          <button className="mockup-settings-close" onClick={() => setSettingsOpen(false)} aria-label="Закрыть">×</button>
+          <p>ЭКСПЕРИМЕНТАЛЬНЫЕ РЕЖИМЫ</p><h2>Вид галереи</h2>
+          {modes.map((item) => <button key={item.id} className="mockup-mode" data-active={item.id === mode} onClick={() => {setMode(item.id);setSettingsOpen(false)}}>
+            <strong>{item.label}</strong><span>{item.hint}</span>
+          </button>)}
+        </div>
+      </div>}
 
       <div className="switcher" role="tablist" aria-label="Версии макета">
         {modes.map((m, i) => (
