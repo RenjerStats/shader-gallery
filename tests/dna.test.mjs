@@ -104,7 +104,7 @@ test('OpenRouter adapter constrains requests, validates output and sanitizes fai
   let payload;
   const args={model:'model/a',prompt:'Волны',controls:'',references:[]};
   const provider=createOpenRouterProvider({apiKey:'test-secret',fetchImpl:async(url,init)=>{assert.equal(url,'https://openrouter.ai/api/v1/chat/completions');payload=JSON.parse(init.body);return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(result)}}]});}});
-  assert.deepEqual(await provider(args),result);assert.equal(payload.max_tokens,6000);assert.equal(payload.messages.length,2);
+  assert.deepEqual(await provider(args),result);assert.equal(payload.max_tokens,16000);assert.deepEqual(payload.reasoning,{effort:'high'});assert.equal(payload.messages.length,2);
   await assert.rejects(createOpenRouterProvider({apiKey:'x',fetchImpl:async()=>new Response('SECRET PROVIDER ERROR',{status:429})})(args),e=>e.code==='rate_limit'&&!e.message.includes('SECRET'));
   await assert.rejects(createOpenRouterProvider({apiKey:'x',timeoutMs:5,fetchImpl:(_,init)=>new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(new Error('abort'))))})(args),e=>e.code==='timeout');
   for(const content of ['not json',JSON.stringify({...result,code:'void mainImage(out vec4 c,in vec2 p){while(true){} c=vec4(1.);}'}),JSON.stringify({...result,parameters:[{...result.parameters[0],default:99}]})]){

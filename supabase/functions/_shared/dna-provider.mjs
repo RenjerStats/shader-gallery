@@ -65,7 +65,7 @@ async function boundedJson(response) {
   finally { reader.releaseLock(); }
 }
 
-export function createOpenRouterProvider({apiKey, fetchImpl = fetch, timeoutMs = 75000} = {}) {
+export function createOpenRouterProvider({apiKey, fetchImpl = fetch, timeoutMs = 300000} = {}) {
   return async ({model, prompt, controls, references}) => {
     if (!apiKey) throw new DnaError('unavailable', 'Генерация пока не подключена. Попробуйте позже.');
     const controller = new AbortController();
@@ -74,7 +74,7 @@ export function createOpenRouterProvider({apiKey, fetchImpl = fetch, timeoutMs =
       const response = await fetchImpl('https://openrouter.ai/api/v1/chat/completions', {
         method:'POST', signal:controller.signal,
         headers:{Authorization:`Bearer ${apiKey}`, 'Content-Type':'application/json', 'X-Title':'Shader DNA Studio'},
-        body:JSON.stringify({model,stream:false,max_tokens:6000,temperature:0.8,
+        body:JSON.stringify({model,stream:false,max_tokens:16000,temperature:0.8,reasoning:{effort:'high'},
           messages:[{role:'system',content:instructions},{role:'user',content:JSON.stringify({idea:prompt,controls,references})}]})
       });
       if (!response.ok) {

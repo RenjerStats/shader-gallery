@@ -72,7 +72,7 @@ export function createDnaService(db,{requireUser,publish},options={}) {
     if (!enabled) return;
     const token=randomUUID();
     const v=await one(db,`update dna_variants set status='running',attempts=attempts+1,lease_token=$2,
-      lease_until=now()+interval '100 seconds',updated_at=now() where id=$1 and status='queued' and attempts<3 returning *`,[id,token]);
+      lease_until=now()+interval '330 seconds',updated_at=now() where id=$1 and status='queued' and attempts<3 returning *`,[id,token]);
     if (!v) return;
     const job=await one(db,'select * from dna_jobs where id=$1',[v.job_id]);
     try {
