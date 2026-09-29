@@ -1,4 +1,4 @@
-type Name='arrow'|'plus'|'heart'|'bookmark'|'check'|'share'|'phone'|'qr'|'pause'|'play'|'search'|'close'|'reset'|'settings';
+type Name='arrow'|'plus'|'heart'|'bookmark'|'check'|'share'|'phone'|'qr'|'pause'|'play'|'search'|'close'|'reset'|'settings'|'download'|'expand'|'shrink';
 const paths:Record<Name,string>={
   arrow:'M4 12h16m-6-6 6 6-6 6', plus:'M12 5v14M5 12h14',
   heart:'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z',
@@ -7,6 +7,9 @@ const paths:Record<Name,string>={
   qr:'M3 3h6v6H3Zm12 0h6v6h-6ZM3 15h6v6H3Zm12 0h2v2h-2Zm6 0v6h-6v-2',
   pause:'M9 5v14M15 5v14', play:'m8 4 12 8-12 8Z', search:'m16 16 5 5M18 10.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0',
   close:'m6 6 12 12M6 18 18 6', reset:'M3 4v6h6M4 10a8 8 0 1 1 1 8',
-  settings:'M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0Zm-4.5 0a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z'
+  settings:'M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0Zm-4.5 0a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z',
+  download:'M12 3v12m-4-4 4 4 4-4M4 18v3h16v-3',
+  expand:'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',
+  shrink:'M3 9h6V3m12 6h-6V3M3 15h6v6m12-6h-6v6'
 };
 export function Icon({name,filled=false}:{name:Name;filled?:boolean}){return <svg className="icon" viewBox="0 0 24 24" fill={filled?'currentColor':'none'} stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]}/></svg>}
