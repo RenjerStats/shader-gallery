@@ -12,7 +12,7 @@ test('HTTP DNA workflow: auth, two results, private drafts, public packages, par
   const port=await new Promise((resolve,reject)=>{const server=createServer();server.once('error',reject);server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>resolve(port))})});
   const url=`http://127.0.0.1:${port}`;
   const child=spawn(process.execPath,['--import','./tests/fixtures/dna-provider.mjs','server/index.mjs','--production'],{
-    cwd:resolve(import.meta.dirname,'..'),env:{...process.env,PORT:String(port),DATA_DIR:join(dir,'db'),PUBLIC_ORIGIN:url,OPENROUTER_API_KEY:'local-test-key',DNA_MODELS:'google/gemini-2.5-flash-lite,qwen/qwen3-30b-a3b-instruct-2507'},stdio:'ignore'});
+    cwd:resolve(import.meta.dirname,'..'),env:{...process.env,PORT:String(port),DATA_DIR:join(dir,'db'),PUBLIC_ORIGIN:url,OPENROUTER_API_KEY:'local-test-key',DNA_MODELS:'~deepseek/deepseek-flash-latest,~openai/gpt-luna-latest'},stdio:'ignore'});
   const call=async(action,payload={},cookie='',origin=url)=>{
     const response=await fetch(`${url}/api/rpc`,{method:'POST',headers:{'content-type':'application/json',cookie,origin},body:JSON.stringify({action,payload})});
     return {status:response.status,...await response.json()};

@@ -24,7 +24,7 @@ test('DNA creates exactly two independent variants; duplicate requests, saves an
     assert.equal(j1.id,j2.id);await drain();assert.equal(calls,2);
     const job=await s.rpc(a.id,'dna_get',{id:j1.id});assert.equal(job.status,'ready');assert.equal(job.variants.length,2);
     assert.ok(job.variants.every(v=>v.result?.code===result.code));
-    assert.notEqual(job.variants[0].model,job.variants[1].model);
+    assert.deepEqual(job.variants.map(v=>v.model),['~deepseek/deepseek-flash-latest','~openai/gpt-luna-latest']);
     await assert.rejects(s.rpc(a.id,'dna_create',{...p,prompt:'Другая идея'}),/уже использован/);
     await assert.rejects(s.rpc(b.id,'dna_get',{id:job.id}),/не найдена/);
     await assert.rejects(s.rpc(b.id,'dna_save',{variant_id:job.variants[0].id}),/не найден/);
@@ -59,7 +59,7 @@ test('DNA snapshots public immutable references and retains attribution after ed
   } finally {await f.close();}
 });
 test('one provider failing does not erase success; retry is bounded and does not rerun successful variant',async()=>{
-  let calls=0;const f=await setup(async ({model})=>{calls++;if(model.startsWith('qwen'))throw new DnaError('timeout','Тайм-аут');return result});const {s,a,drain}=f;
+  let calls=0;const f=await setup(async ({model})=>{calls++;if(model.startsWith('~openai/'))throw new DnaError('timeout','Тайм-аут');return result});const {s,a,drain}=f;
   try {
     const j=await s.rpc(a.id,'dna_create',request());await drain();
     let job=await s.rpc(a.id,'dna_get',{id:j.id});assert.equal(job.status,'partial');assert.equal(calls,2);

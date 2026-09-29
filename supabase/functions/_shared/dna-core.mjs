@@ -14,7 +14,7 @@ const text = (v,max,required=false) => {
 const active = ['queued','running'];
 
 export function createDnaService(db,{requireUser,publish},options={}) {
-  const models = options.models || ['google/gemini-2.5-flash-lite','qwen/qwen3-30b-a3b-instruct-2507'];
+  const models = options.models || ['~deepseek/deepseek-flash-latest','~openai/gpt-luna-latest'];
   const enabled = !!(options.provider || options.apiKey) && models.length === 2 && models.every(m => typeof m === 'string' && m.length > 0 && m.length <= 120) && models[0] !== models[1];
   const generate = options.provider || createOpenRouterProvider({apiKey:options.apiKey});
   const schedule = options.schedule || (task => { task.catch(() => {}); });
