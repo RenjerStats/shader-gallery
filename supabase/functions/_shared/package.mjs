@@ -19,7 +19,7 @@ export function makePackage(detail,origin){
     parameters:revision.parameters,
     inputs:['iTime','iResolution','iMouse','iTilt'],
     sourceUrl:`${origin}/works/${work.id}?revision=${revision.id}`,
-    preview:revision.preview,
+    preview:revision.preview??null,
     publishedAt:revision.created_at
   };
 }

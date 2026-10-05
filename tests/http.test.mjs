@@ -70,5 +70,34 @@ test('HTTP auth, public package and OG metadata work together',async()=>{
     assert.equal(oversized.status,400);
     const anon=await fetch(`${url}/api/rpc`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'draft_list',payload:{}})});
     assert.equal(anon.status,400);
+    // Traffic optimisations: lite feed without blobs, separate immutable previews, batched reads, compression.
+    const rpc=async(action,payloadBody)=>(await fetch(`${url}/api/rpc`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,payload:payloadBody})})).json();
+    const lite=(await rpc('feed',{lite:true,limit:1})).data.items[0];
+    assert.equal(lite.revision.preview,undefined);
+    assert.equal(lite.revision.has_preview,true);
+    const image=await fetch(`${url}/api/preview/${lite.revision.id}`);
+    assert.equal(image.status,200);
+    assert.equal(image.headers.get('content-type'),'image/webp');
+    assert.match(image.headers.get('cache-control'),/immutable/);
+    const etag=image.headers.get('etag');assert.ok(etag);
+    const again=await fetch(`${url}/api/preview/${lite.revision.id}`,{headers:{'if-none-match':etag}});
+    assert.equal(again.status,304);
+    assert.equal((await fetch(`${url}/api/preview/${randomUUID()}`)).status,404);
+    const batch=(await rpc('batch',{requests:[{action:'feed',payload:{lite:true,limit:1}},{action:'work',payload:{id:ids.work_id,lite:true}},{action:'publish',payload:{}},{action:'nope',payload:{}}]})).data.results;
+    assert.equal(batch.length,4);
+    assert.equal(batch[0].data.items.length,1);
+    assert.equal(batch[1].data.work.revision.preview,undefined);
+    assert.equal(batch[1].data.work.revision.has_preview,true);
+    assert.ok(batch[2].error&&batch[3].error);
+    const packageUrl=`${url}/api/packages/${ids.work_id}/${ids.revision_id}`;
+    const packageResponse=await fetch(packageUrl);
+    assert.match(packageResponse.headers.get('cache-control'),/immutable/);
+    assert.equal(packageResponse.headers.get('vary'),'Accept-Encoding');
+    assert.equal((await fetch(packageUrl,{headers:{'if-none-match':packageResponse.headers.get('etag')}})).status,304);
+    const raw=await fetch(`${url}/api/rpc`,{method:'POST',headers:{'content-type':'application/json','accept-encoding':'gzip'},body:JSON.stringify({action:'work',payload:{id:ids.work_id}})});
+    assert.equal(raw.headers.get('content-encoding'),'gzip');
+    const shell=await fetch(`${url}/`);
+    assert.equal(shell.headers.get('cache-control'),'no-cache');
+    assert.equal((await fetch(`${url}/`,{headers:{'if-none-match':shell.headers.get('etag')}})).status,304);
   }finally{child.kill();await rm(dir,{recursive:true,force:true})}
 });

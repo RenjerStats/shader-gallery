@@ -82,16 +82,54 @@ object PackageStore {
     fun setFps(context:Context,value:Int){context.getSharedPreferences(PREFS,0).edit().putInt("fps",value).apply()}
 }
 
+/** A shader ready to run, plus the work page data when the server could send both at once. */
+class OpenedWork(val shader:ShaderPackage,val detail:JSONObject?)
+
 object PackageClient {
+    /** A revision never changes, so a package seen before is valid forever; parse() re-checks its content hash. */
+    private fun cached(context:Context,workId:String,revisionId:String?):ShaderPackage? {
+        if(revisionId==null)return null
+        val bytes=Caches.packages(context).read(revisionId) ?: return null
+        return try {ShaderPackage.parse(String(bytes,Charsets.UTF_8)).takeIf {it.workId==workId && it.revisionId==revisionId}} catch(_:Exception) {null}
+    }
+
+    private fun remember(context:Context,shader:ShaderPackage):ShaderPackage {
+        Caches.packages(context).write(shader.revisionId,shader.raw.toByteArray(Charsets.UTF_8))
+        return shader
+    }
+
+    /** Package and page details in one round trip when the package is not on the device yet. */
+    fun open(context:Context,source:String,workId:String,revisionId:String?,viewer:String?):OpenedWork {
+        UUID.fromString(workId);if(revisionId!=null)UUID.fromString(revisionId)
+        cached(context,workId,revisionId)?.let {return OpenedWork(it,null)}
+        if(GalleryClient.isCloud(source)) {
+            try {
+                val package_=JSONObject().put("id",workId);val work=JSONObject().put("id",workId)
+                if(revisionId!=null){package_.put("revision_id",revisionId);work.put("revision_id",revisionId)}
+                val (packed,detailed)=GalleryClient.batch(context,source,listOf("package" to package_,"work" to work))
+                val shader=ShaderPackage.parse(packed.getOrThrow().toString())
+                require(shader.workId==workId && (revisionId==null || shader.revisionId==revisionId)) { "Получена другая версия" }
+                val detail=detailed.getOrNull()
+                if(detail!=null)GalleryClient.storeWork(context,source,workId,revisionId,viewer,detail)
+                return OpenedWork(remember(context,shader),detail)
+            } catch(e:Exception) {
+                // A server without `batch` (older deployment) still works through the single-call path below.
+                if(e is java.io.IOException)throw e
+            }
+        }
+        return OpenedWork(download(context,source,workId,revisionId),null)
+    }
+
     fun download(context:Context,source:String,workId:String,revisionId:String?):ShaderPackage {
         UUID.fromString(workId);if(revisionId!=null)UUID.fromString(revisionId)
+        cached(context,workId,revisionId)?.let {return it}
         if(GalleryClient.isCloud(source)) {
             val payload=JSONObject().put("id",workId)
             if(revisionId!=null)payload.put("revision_id",revisionId)
             val raw=GalleryClient.rpc(context,source,"package",payload).toString()
             val shader=ShaderPackage.parse(raw)
             require(shader.workId==workId && (revisionId==null || shader.revisionId==revisionId)) { "Получена другая версия" }
-            return shader
+            return remember(context,shader)
         }
         val base=URL(source.trimEnd('/'))
         require(base.protocol=="https" || (base.protocol=="http" && base.host=="127.0.0.1")) { "Нужен HTTPS-адрес галереи" }
@@ -121,7 +159,7 @@ object PackageClient {
             val json=JSONObject(bytes.toString(Charsets.UTF_8))
             val shader=ShaderPackage.parse(json.getJSONObject("data").toString())
             require(shader.workId==workId && shader.revisionId==resolved) { "Получена другая версия" }
-            return shader
+            return remember(context,shader)
         } finally { connection.disconnect() }
     }
 }

@@ -22,7 +22,9 @@ data class GalleryCard(
     val author:String,
     val category:String,
     val revisionId:String,
-    val preview:String?
+    /** Legacy servers inline the image here; current ones set [hasPreview] and serve it separately. */
+    val preview:String?,
+    val hasPreview:Boolean=false
 ) {
     companion object {
         fun fromJson(json:JSONObject):GalleryCard {
@@ -36,7 +38,8 @@ data class GalleryCard(
                 json.getJSONObject("author").getString("display_name"),
                 json.getString("category"),
                 UUID.fromString(revision.getString("id")).toString(),
-                revision.optString("preview").takeIf { (it.startsWith("data:image/png;base64,") || it.startsWith("data:image/jpeg;base64,") || it.startsWith("data:image/webp;base64,")) && it.length<=400_000 }
+                revision.optString("preview").takeIf { (it.startsWith("data:image/png;base64,") || it.startsWith("data:image/jpeg;base64,") || it.startsWith("data:image/webp;base64,")) && it.length<=400_000 },
+                revision.optBoolean("has_preview",false)
             )
         }
     }
@@ -54,7 +57,9 @@ data class GalleryCard(
     }
 }
 
-data class GalleryPage(val items:List<GalleryCard>,val nextCursor:JSONObject?)
+/** [signature] hashes the raw answer so an unchanged page can be recognised without comparing cards. */
+data class GalleryPage(val items:List<GalleryCard>,val nextCursor:JSONObject?,val signature:String)
+data class CachedPage(val page:GalleryPage,val ageMs:Long)
 
 private class GalleryHttpException(val status:Int,message:String):Exception(message)
 
@@ -99,7 +104,7 @@ object GalleryClient {
             if(code !in 200..299)throw GalleryHttpException(code,response.optString("msg").ifBlank {response.optString("error_description").ifBlank {response.optString("error","Галерея недоступна: $code")}})
             require(!response.has("error")) {response.optString("error")}
             return response
-        } finally {connection.disconnect()}
+        } catch(e:Exception) {connection.disconnect();throw e}
     }
 
     @Synchronized private fun access(context:Context):String? {
@@ -164,13 +169,65 @@ object GalleryClient {
             require(code in 200..299) { response.optString("error","Галерея недоступна: $code") }
             connection.getHeaderField("Set-Cookie")?.substringBefore(';')?.takeIf {it.startsWith("sg_session=") }?.let {setCookie(context,source,it)}
             return response
-        } finally { connection.disconnect() }
+        } catch(e:Exception) {connection.disconnect();throw e}
+    }
+
+    private val retriedActions=setOf("feed","work","profile","package","batch")
+
+    /** Reads are safe to repeat: one more try covers a cold server or a dropped mobile connection. */
+    private fun <T> retrying(block:()->T):T {
+        try {return block()} catch(e:Exception) {
+            val transient=e is java.io.IOException || (e is GalleryHttpException && e.status>=500)
+            if(!transient)throw e
+        }
+        Thread.sleep(400)
+        return block()
     }
 
     fun rpc(context:Context,source:String,action:String,payload:JSONObject=JSONObject()):JSONObject {
+        // Image bytes are fetched separately (and cached), so keep them out of lists and details.
+        if((action=="feed" || action=="work") && !payload.has("lite"))payload.put("lite",true)
         val body=JSONObject().put("action",action).put("payload",payload)
-        return if(isCloud(source))cloudRequest("/functions/v1/gallery",body,access(context)).getJSONObject("data")
-        else request(context,source,"/api/rpc",body).getJSONObject("data")
+        val call={
+            if(isCloud(source))cloudRequest("/functions/v1/gallery",body,access(context)).getJSONObject("data")
+            else request(context,source,"/api/rpc",body).getJSONObject("data")
+        }
+        return if(action in retriedActions)retrying(call) else call()
+    }
+
+    /** Several reads in one round trip; each slot is the result or the failure. Needs a server that knows `batch`. */
+    fun batch(context:Context,source:String,requests:List<Pair<String,JSONObject>>):List<Result<JSONObject>> {
+        val list=org.json.JSONArray()
+        requests.forEach {(action,payload)->
+            if(action=="feed" || action=="work")payload.put("lite",true)
+            list.put(JSONObject().put("action",action).put("payload",payload))
+        }
+        val results=rpc(context,source,"batch",JSONObject().put("requests",list)).getJSONArray("results")
+        return (0 until results.length()).map {
+            val item=results.getJSONObject(it)
+            if(item.has("error"))Result.failure(IllegalStateException(item.optString("error"))) else Result.success(item.getJSONObject("data"))
+        }
+    }
+
+    fun previewUrl(source:String,revisionId:String):String =
+        if(isCloud(source))"$CLOUD/functions/v1/gallery/preview/$revisionId" else "${base(source)}/api/preview/$revisionId"
+
+    /** Plain GET of a small public file (artwork preview). */
+    fun download(context:Context,source:String,url:String):ByteArray = retrying {
+        val connection=URL(url).openConnection() as HttpURLConnection
+        connection.instanceFollowRedirects=false;connection.connectTimeout=10000;connection.readTimeout=20000
+        if(isCloud(source))connection.setRequestProperty("apikey",KEY)
+        try {
+            val code=connection.responseCode
+            require(code==200) {"Изображение недоступно: $code"}
+            val output=ByteArrayOutputStream()
+            connection.inputStream.use {input->
+                val chunk=ByteArray(8192)
+                while(output.size()<=2_000_000){val count=input.read(chunk);if(count<0)break;output.write(chunk,0,count)}
+            }
+            require(output.size()<=2_000_000) {"Изображение слишком большое"}
+            output.toByteArray()
+        } catch(e:Exception) {connection.disconnect();throw e}
     }
 
     fun session(context:Context,source:String):String? {
@@ -198,15 +255,47 @@ object GalleryClient {
         try {access(context)?.let{cloudRequest("/auth/v1/logout",JSONObject(),it)}} finally {CloudAuth.clear(context)}
     }
 
-    fun feed(context:Context,source:String,mode:String,query:String,category:String,cursor:JSONObject?):GalleryPage {
+    private fun feedKey(source:String,mode:String,query:String,category:String,viewer:String?)=
+        "feed|${base(source)}|$mode|${query.trim()}|$category|${viewer ?: ""}"
+
+    private fun parsePage(data:JSONObject):GalleryPage {
+        val array=data.getJSONArray("items")
+        return GalleryPage((0 until array.length()).map {GalleryCard.fromJson(array.getJSONObject(it))},data.optJSONObject("next_cursor"),Caches.sha256(data.toString()))
+    }
+
+    /** First page as last seen on this device, however old; the caller decides whether it is fresh enough. */
+    fun cachedFeed(context:Context,source:String,mode:String,query:String,category:String,viewer:String?):CachedPage? {
+        val cache=Caches.api(context);val key=feedKey(source,mode,query,category,viewer)
+        val bytes=cache.read(key) ?: return null
+        return try {CachedPage(parsePage(JSONObject(String(bytes,Charsets.UTF_8))),cache.age(key) ?: Long.MAX_VALUE)} catch(_:Exception) {null}
+    }
+
+    fun feed(context:Context,source:String,mode:String,query:String,category:String,cursor:JSONObject?,viewer:String?=null):GalleryPage {
         require(mode in listOf("new","curated","following","saved"))
-        val payload=JSONObject().put("mode",mode).put("limit",8)
+        val payload=JSONObject().put("mode",mode).put("limit",12)
         if(query.isNotBlank())payload.put("query",query.trim().take(100))
         if(category.isNotBlank())payload.put("category",category)
         if(cursor!=null)payload.put("cursor",cursor)
         val data=rpc(context,source,"feed",payload)
-        val array=data.getJSONArray("items")
-        val items=(0 until array.length()).map { GalleryCard.fromJson(array.getJSONObject(it)) }
-        return GalleryPage(items,data.optJSONObject("next_cursor"))
+        val page=parsePage(data)
+        // Personal lists are only kept once we know whose they are.
+        if(cursor==null && (viewer!=null || mode=="new" || mode=="curated"))
+            Caches.api(context).write(feedKey(source,mode,query,category,viewer),data.toString().toByteArray(Charsets.UTF_8))
+        return page
+    }
+
+    private fun workKey(source:String,id:String,revision:String?,viewer:String?)="work|${base(source)}|$id|${revision ?: ""}|${viewer ?: ""}"
+
+    fun cachedWork(context:Context,source:String,id:String,revision:String?,viewer:String?):JSONObject? =
+        try {Caches.api(context).read(workKey(source,id,revision,viewer))?.let {JSONObject(String(it,Charsets.UTF_8))}} catch(_:Exception) {null}
+
+    fun storeWork(context:Context,source:String,id:String,revision:String?,viewer:String?,detail:JSONObject) =
+        Caches.api(context).write(workKey(source,id,revision,viewer),detail.toString().toByteArray(Charsets.UTF_8))
+
+    /** Work details (comments, counters, versions), remembered so the page can open before the network answers. */
+    fun work(context:Context,source:String,id:String,revision:String?,viewer:String?):JSONObject {
+        val data=rpc(context,source,"work",JSONObject().put("id",id).put("revision_id",revision))
+        storeWork(context,source,id,revision,viewer,data)
+        return data
     }
 }

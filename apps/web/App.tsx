@@ -5,8 +5,7 @@ import {GalleryCard} from './GalleryCard';
 import {Suspense,lazy,useEffect,useRef,useState} from 'react';
 const CodeEditor=lazy(()=>import('./CodeEditor'));
 const VirtualGallery=lazy(()=>import('./VirtualGallery').then(module=>({default:module.VirtualGallery})));
-import QRCode from 'qrcode';
-import {rpc,getSession,signIn,signUp,signOut,signInGoogle,authMode} from './api';
+import {rpc,rpcBatch,previewSrc,getSession,signIn,signUp,signOut,signInGoogle,authMode} from './api';
 import {saveLocalDraft,listLocalDrafts,deleteLocalDraft} from './drafts';
 import {ShaderRenderer} from './runtime';
 import type {User,FeedWork,WorkDetail,Profile,Parameter,Draft} from './types';
@@ -24,16 +23,20 @@ const currentRoute=()=>{const path=location.pathname.startsWith(base+'/')?locati
 
 function Link({to,children,className}:{to:string;children:React.ReactNode;className?:string}){return <a href={urlFor(to)} className={className} onClick={e=>{if(e.button===0&&!e.metaKey&&!e.ctrlKey&&!e.shiftKey){e.preventDefault();history.pushState({},'',urlFor(to));window.dispatchEvent(new PopStateEvent('popstate'));window.scrollTo(0,0);}}}>{children}</a>}
 function Notice({message,onClose}:{message:string;onClose?:()=>void}){return <div className="notice" role="alert">{message}{onClose&&<button onClick={onClose} aria-label="Закрыть"><Icon name="close"/></button>}</div>}
-function WorkCard({work}:{work:FeedWork}){return <Link to={`/works/${work.id}`} className="work-card"><div className="card-art">{work.revision.preview?<img src={work.revision.preview} alt="" loading="lazy"/>:<div className="card-fallback"/>}</div><div className="card-info"><div><strong>{work.title}</strong><span>{work.author.display_name}</span></div></div></Link>}
+function WorkCard({work}:{work:FeedWork}){return <Link to={`/works/${work.id}`} className="work-card"><div className="card-art">{previewSrc(work.revision)?<img src={previewSrc(work.revision)!} alt="" loading="lazy" decoding="async"/>:<div className="card-fallback"/>}</div><div className="card-info"><div><strong>{work.title}</strong><span>{work.author.display_name}</span></div></div></Link>}
 
 function FeedPage(){
   const [items,setItems]=useState<FeedWork[]>([]),[cursor,setCursor]=useState<FeedResult['next_cursor']>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[query,setQuery]=useState(''),[search,setSearch]=useState(''),[category,setCategory]=useState('');
   const [featured,setFeatured]=useState<FeedWork|null>(null);
   const [gyro,setGyro]=useState(false),[gyroError,setGyroError]=useState('');
-  const request=useRef(0);
-  async function load(more=false){if(more&&loading)return;const current=++request.current;setLoading(true);setError('');try{const r=await rpc<FeedResult>('feed',{mode:'new',query:search,category:category||undefined,cursor:more?cursor:undefined,limit:8});if(current!==request.current)return;setItems(previous=>more?[...previous,...r.items.filter(item=>!previous.some(old=>old.id===item.id))]:r.items);setCursor(r.next_cursor)}catch(e){if(current===request.current)setError(friendly(e))}finally{if(current===request.current)setLoading(false)}}
+  const request=useRef(0),featuredAsked=useRef(false);
+  async function load(more=false){if(more&&loading)return;const current=++request.current;setLoading(true);setError('');try{const feedPayload={mode:'new',query:search,category:category||undefined,cursor:more?cursor:undefined,limit:8};let r:FeedResult;
+    if(!featuredAsked.current){featuredAsked.current=true;// first visit: the feed and the featured work travel in one request
+      const [page,top]=await rpcBatch<[FeedResult,FeedResult]>([{action:'feed',payload:feedPayload},{action:'feed',payload:{mode:'curated',limit:1}}]);
+      if(!(top instanceof Error))setFeatured(top.items[0]||null);
+      if(page instanceof Error)throw page;r=page;
+    }else r=await rpc<FeedResult>('feed',feedPayload);if(current!==request.current)return;setItems(previous=>more?[...previous,...r.items.filter(item=>!previous.some(old=>old.id===item.id))]:r.items);setCursor(r.next_cursor)}catch(e){if(current===request.current)setError(friendly(e))}finally{if(current===request.current)setLoading(false)}}
   useEffect(()=>{load()},[search,category]);
-  useEffect(()=>{rpc<FeedResult>('feed',{mode:'curated',limit:1}).then(result=>setFeatured(result.items[0]||null)).catch(()=>{})},[]);
   const workOfWeek=featured||items[0];
   return <main className="page gallery-page">
     <section className="gallery-hero" aria-label="Работа недели"><div className="gallery-hero-content"><p className="gallery-kicker">РАБОТА НЕДЕЛИ · SHADER GALLERY</p><h1>{workOfWeek?.title||'Искусство живой графики'}</h1><p>{workOfWeek?.description||'Формы, свет и движение, созданные кодом.'}</p>{workOfWeek&&<p className="gallery-featured-author">by <Link to={`/profile/${workOfWeek.author_id}`}>{workOfWeek.author.display_name}</Link></p>}<div className="gallery-hero-actions">{workOfWeek&&<Link to={`/works/${workOfWeek.id}`} className="button primary">Открыть работу <Icon name="arrow"/></Link>}<a href="#feed" className="button">К ленте ↓</a></div></div><span className="gallery-hero-art-credit">Жидкое стекло · визуальная коллекция</span></section>
@@ -55,7 +58,7 @@ function WorkPage({id,user,requireAuth}:{id:string;user:User|null;requireAuth:()
   useEffect(()=>{load()},[id,revisionId,user?.id]);
   async function action(name:string,payload:object){if(!user){requireAuth();return}setBusy(true);try{await rpc(name,payload);await load()}catch(e){setError(friendly(e))}finally{setBusy(false)}}
   async function share(){const url=location.href;try{await navigator.clipboard.writeText(url);setError('Ссылка скопирована')}catch{setError('Скопируйте ссылку из адресной строки')}}
-  async function showQr(){setQr(await QRCode.toDataURL(location.href,{margin:2,width:220}))}
+  async function showQr(){const {default:QRCode}=await import('qrcode');setQr(await QRCode.toDataURL(location.href,{margin:2,width:220}))}
   if(loading&&!detail)return <main className="page"><p>Загружаем работу…</p></main>;
   if(!detail)return <main className="page"><Notice message={error||'Работа не найдена'}/><Link to="/">Вернуться в галерею</Link></main>;
   const w=detail.work,r=w.revision;

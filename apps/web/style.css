@@ -69,7 +69,7 @@ p { line-height: 1.7; }
 .hero-copy .button { min-height: 47px; padding: 12px 23px; }
 .hero-copy .button.primary { border-color: var(--lime); background: var(--lime); color: var(--ink); box-shadow: none; }
 .hero-copy .button.primary:hover { border-color: #a8dd39; background: #a8dd39; color: var(--ink); }
-.hero-art { min-width: 0; height: clamp(295px, 30vw, 390px); border-radius: 18px; background: #e9edf3 url('./public/hero-opal-ribbon.png') center / cover no-repeat; }
+.hero-art { min-width: 0; height: clamp(295px, 30vw, 390px); border-radius: 18px; background: #e9edf3 url('./public/hero-opal-ribbon.jpg') center / cover no-repeat; }
 .section-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 23px; }
 .section-head h1, .section-head h2 { margin-bottom: 0; }
 .section-head.compact { align-items: center; margin-bottom: 12px; }

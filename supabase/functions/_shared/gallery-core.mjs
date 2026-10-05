@@ -1,6 +1,8 @@
 import {validateParameters,validateValues} from './shader-validation.mjs';
 import {randomUUID, createHash, randomBytes, scryptSync, timingSafeEqual} from 'node:crypto';
+import {Buffer} from 'node:buffer';
 import {createDnaService} from './dna-core.mjs';
+import {makePackage} from './package.mjs';
 
 const fail = (message) => { throw new Error(message); };
 const uuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value||''));
@@ -10,6 +12,10 @@ const clean = (v, max) => String(v ?? '').trim().slice(0, max + 1);
 const one = async (db, sql, args=[]) => (await db.query(sql,args)).rows[0] ?? null;
 const rows = async (db, sql, args=[]) => (await db.query(sql,args)).rows;
 const publicUser = (u) => u && ({id:u.id,email:u.email});
+// Revisions are immutable, so everything derived from a revision id can be cached forever.
+const revisionLite='id,work_id,code,license,parameters,parent_revision_id,dna_origin,created_at,(preview is not null) as has_preview';
+const readActions=new Set(['feed','work','profile','package']);
+const FEED_TTL=10_000,FEED_CACHE_MAX=64;
 const jsonArray = value => {
   const parsed=typeof value==='string'?JSON.parse(value):value;
   if(!Array.isArray(parsed)) fail('Некорректные параметры работы');
@@ -39,10 +45,10 @@ export function createStore(db,options={}) {
     if(viewerId && await one(db,'select 1 from blocks where user_id=$1 and author_id=$2',[viewerId,w.author_id])) return false;
     return true;
   };
-  const work = async (id,viewerId,revisionId) => {
+  const work = async (id,viewerId,revisionId,lite=false) => {
     const w=await one(db,'select * from works where id=$1',[id]);
     if(!await canRead(w,viewerId)) fail('Работа не найдена');
-    const r=await one(db,'select * from revisions where id=$1 and work_id=$2',[revisionId||w.current_revision_id,id]);
+    const r=await one(db,`select ${lite?revisionLite:'*'} from revisions where id=$1 and work_id=$2`,[revisionId||w.current_revision_id,id]);
     if(!r) fail('Версия не найдена');
     const [author,likes,saves,liked,saved]=await Promise.all([
       profile(w.author_id,viewerId),one(db,'select count(*)::int as n from likes where work_id=$1',[id]),one(db,'select count(*)::int as n from saves where work_id=$1',[id]),
@@ -81,43 +87,72 @@ export function createStore(db,options={}) {
   };
   const revokeSession = async token => {if(token) await db.query('delete from sessions where token_hash=$1',[hash(token)]);};
 
+  const feedPage = async (userId,p) => {
+    const mode=['new','curated','following','saved','popular','discussed'].includes(p.mode)?p.mode:'new';
+    if((mode==='following'||mode==='saved')&&!userId) fail('Нужно войти в аккаунт');
+    const limit=Math.min(30,Math.max(1,Number(p.limit)||12));
+    const args=[userId]; let where="w.status='published' and not exists(select 1 from blocks b where b.user_id=$1 and b.author_id=w.author_id)";
+    if(mode==='curated') where+=' and w.curated=true';
+    if(mode==='following') where+=' and exists(select 1 from follows f where f.user_id=$1 and f.author_id=w.author_id)';
+    if(mode==='saved') where+=' and exists(select 1 from saves s where s.user_id=$1 and s.work_id=w.id)';
+    if(p.query){args.push(`%${clean(p.query,100)}%`);where+=` and (w.title ilike $${args.length} or w.description ilike $${args.length} or exists(select 1 from unnest(w.tags) t where t ilike $${args.length}))`;}
+    if(p.category){args.push(clean(p.category,40));where+=` and w.category=$${args.length}`;}
+    if(p.author_id){if(!uuid(p.author_id)) fail('Некорректный автор');args.push(p.author_id);where+=` and w.author_id=$${args.length}`;}
+    if(p.cursor && mode!=='popular' && mode!=='discussed'){if(!uuid(p.cursor.id)||!p.cursor.created_at) fail('Некорректная страница');args.push(p.cursor.created_at,p.cursor.id);where+=` and (w.created_at,w.id)<($${args.length-1}::timestamptz,$${args.length}::uuid)`;}
+    args.push(limit+1);
+    const ranking=mode==='popular'?'left join (select work_id,count(*) as score from likes group by work_id) reaction on reaction.work_id=w.id':mode==='discussed'?'left join (select work_id,count(*) as score from comments group by work_id) reaction on reaction.work_id=w.id':'';
+    const order=ranking?'coalesce(reaction.score,0) desc,w.created_at desc,w.id desc':'w.created_at desc,w.id desc';
+    const previewColumn=p.lite?'(r.preview is not null) as has_preview':'r.preview';
+    const selected=await rows(db,`select w.id,w.author_id,w.title,w.description,w.tags,w.category,w.created_at,u.display_name,r.id as revision_id,${previewColumn}
+      from works w join users u on u.id=w.author_id join revisions r on r.id=w.current_revision_id ${ranking}
+      where ${where} order by ${order} limit $${args.length}`,args);
+    const page=selected.slice(0,limit);
+    const items=page.map(w=>({id:w.id,author_id:w.author_id,title:w.title,description:w.description,tags:w.tags,category:w.category,created_at:iso(w.created_at),
+      author:{display_name:w.display_name},revision:p.lite?{id:w.revision_id,has_preview:!!w.has_preview}:{id:w.revision_id,preview:w.preview}}));
+    const last=page.at(-1);
+    return {items,next_cursor:!ranking&&selected.length>limit&&last?{created_at:iso(last.created_at),id:last.id}:null};
+  };
+  const feedCache=new Map();
+
   async function rpc(viewerId,action,p={},replayDnaPublication=false) {
     const userId=viewerId||null;
     if(action.startsWith('dna_')) return dna.rpc(userId,action,p);
     if(action==='feed') {
-      const mode=['new','curated','following','saved','popular','discussed'].includes(p.mode)?p.mode:'new';
-      if((mode==='following'||mode==='saved')&&!userId) fail('Нужно войти в аккаунт');
-      const limit=Math.min(30,Math.max(1,Number(p.limit)||12));
-      const args=[userId]; let where="w.status='published' and not exists(select 1 from blocks b where b.user_id=$1 and b.author_id=w.author_id)";
-      if(mode==='curated') where+=' and w.curated=true';
-      if(mode==='following') where+=' and exists(select 1 from follows f where f.user_id=$1 and f.author_id=w.author_id)';
-      if(mode==='saved') where+=' and exists(select 1 from saves s where s.user_id=$1 and s.work_id=w.id)';
-      if(p.query){args.push(`%${clean(p.query,100)}%`);where+=` and (w.title ilike $${args.length} or w.description ilike $${args.length} or exists(select 1 from unnest(w.tags) t where t ilike $${args.length}))`;}
-      if(p.category){args.push(clean(p.category,40));where+=` and w.category=$${args.length}`;}
-      if(p.author_id){if(!uuid(p.author_id)) fail('Некорректный автор');args.push(p.author_id);where+=` and w.author_id=$${args.length}`;}
-      if(p.cursor && mode!=='popular' && mode!=='discussed'){if(!uuid(p.cursor.id)||!p.cursor.created_at) fail('Некорректная страница');args.push(p.cursor.created_at,p.cursor.id);where+=` and (w.created_at,w.id)<($${args.length-1}::timestamptz,$${args.length}::uuid)`;}
-      args.push(limit+1);
-      const ranking=mode==='popular'?'left join (select work_id,count(*) as score from likes group by work_id) reaction on reaction.work_id=w.id':mode==='discussed'?'left join (select work_id,count(*) as score from comments group by work_id) reaction on reaction.work_id=w.id':'';
-      const order=ranking?'coalesce(reaction.score,0) desc,w.created_at desc,w.id desc':'w.created_at desc,w.id desc';
-      const selected=await rows(db,`select w.id,w.author_id,w.title,w.description,w.tags,w.category,w.created_at,u.display_name,r.id as revision_id,r.preview
-        from works w join users u on u.id=w.author_id join revisions r on r.id=w.current_revision_id ${ranking}
-        where ${where} order by ${order} limit $${args.length}`,args);
-      const page=selected.slice(0,limit);
-      const items=page.map(w=>({id:w.id,author_id:w.author_id,title:w.title,description:w.description,tags:w.tags,category:w.category,created_at:iso(w.created_at),
-        author:{display_name:w.display_name},revision:{id:w.revision_id,preview:w.preview}}));
-      const last=page.at(-1);
-      return {items,next_cursor:!ranking&&selected.length>limit&&last?{created_at:iso(last.created_at),id:last.id}:null};
+      const key=!userId&&['new','curated',undefined].includes(p.mode)?JSON.stringify([p.mode,p.limit,p.query,p.category,p.author_id,p.cursor,!!p.lite]):null;
+      const hit=key&&feedCache.get(key);
+      if(hit&&hit.until>Date.now())return hit.value;
+      const value=await feedPage(userId,p);
+      if(key){feedCache.set(key,{value,until:Date.now()+FEED_TTL});if(feedCache.size>FEED_CACHE_MAX)feedCache.delete(feedCache.keys().next().value);}
+      return value;
+    }
+    if(action==='batch') {
+      if(!Array.isArray(p.requests)||p.requests.length<1||p.requests.length>8) fail('Некорректный пакетный запрос');
+      return {results:await Promise.all(p.requests.map(async request=>{
+        try{
+          if(!readActions.has(request?.action)||!request.payload||typeof request.payload!=='object') fail('Действие недоступно в пакете');
+          return {data:await rpc(userId,request.action,request.payload)};
+        }catch(error){return {error:error instanceof Error?error.message:'Ошибка сервера'};}
+      }))};
+    }
+    if(action==='package') {
+      if(!options.origin) fail('Пакеты недоступны');
+      return makePackage(await rpc(null,'work',{id:p.id,revision_id:p.revision_id,lite:true}),options.origin);
     }
     if(action==='work') {
       if(!uuid(p.id)) fail('Некорректная работа');
-      const item=await work(p.id,userId,p.revision_id);
-      const commentRows=await rows(db,'select c.id,c.work_id,c.body,c.created_at,u.id as author_id,u.username,u.display_name,u.bio from comments c join users u on u.id=c.author_id where c.work_id=$1 order by c.created_at asc limit 200',[p.id]);
+      const item=await work(p.id,userId,p.revision_id,!!p.lite);
+      const parentRevision=item.revision.parent_revision_id;
+      const [commentRows,revisionRows,pr,remixes,preset]=await Promise.all([
+        rows(db,'select c.id,c.work_id,c.body,c.created_at,u.id as author_id,u.username,u.display_name,u.bio from comments c join users u on u.id=c.author_id where c.work_id=$1 order by c.created_at asc limit 200',[p.id]),
+        rows(db,'select id,created_at from revisions where work_id=$1 order by created_at desc',[p.id]),
+        parentRevision?one(db,'select r.work_id,r.id as revision_id,w.title,w.author_id from revisions r join works w on w.id=r.work_id where r.id=$1',[parentRevision]):null,
+        rows(db,"select distinct w.id,w.title from works w join revisions r on r.work_id=w.id where r.parent_revision_id=$1 and w.status='published' limit 30",[item.revision.id]),
+        userId?one(db,'select vals from presets where user_id=$1 and revision_id=$2',[userId,item.revision.id]):null
+      ]);
       const comments=commentRows.map(c=>({id:c.id,work_id:c.work_id,body:c.body,created_at:iso(c.created_at),author:{id:c.author_id,username:c.username,display_name:c.display_name,bio:c.bio}}));
-      const revs=(await rows(db,'select id,created_at from revisions where work_id=$1 order by created_at desc',[p.id])).map(r=>({id:r.id,created_at:iso(r.created_at)}));
+      const revs=revisionRows.map(r=>({id:r.id,created_at:iso(r.created_at)}));
       let parent=null;
-      if(item.revision.parent_revision_id){const pr=await one(db,'select r.work_id,r.id as revision_id,w.title,w.author_id from revisions r join works w on w.id=r.work_id where r.id=$1',[item.revision.parent_revision_id]);if(pr&&await canRead(await one(db,'select * from works where id=$1',[pr.work_id]),userId))parent={work_id:pr.work_id,revision_id:pr.revision_id,title:pr.title,author:(await profile(pr.author_id,userId)).display_name};}
-      const remixes=await rows(db,"select distinct w.id,w.title from works w join revisions r on r.work_id=w.id where r.parent_revision_id=$1 and w.status='published' limit 30",[item.revision.id]);
-      const preset=userId?await one(db,'select vals from presets where user_id=$1 and revision_id=$2',[userId,item.revision.id]):null;
+      if(pr&&await canRead(await one(db,'select * from works where id=$1',[pr.work_id]),userId))parent={work_id:pr.work_id,revision_id:pr.revision_id,title:pr.title,author:(await profile(pr.author_id,userId)).display_name};
       return {work:item,comments,revisions:revs,parent,remixes,preset:preset?jsonObject(preset.vals):null};
     }
     if(action==='profile') return profile(p.id,userId);
@@ -176,7 +211,7 @@ export function createStore(db,options={}) {
         await tx.query('update works set current_revision_id=$1,title=$2,description=$3,category=$4,tags=$5,updated_at=now() where id=$6',[revisionId,title,description,category,tags,workId]);
         await tx.query('insert into publish_requests(user_id,request_id,fingerprint,work_id,revision_id) values($1,$2,$3,$4,$5)',[userId,p.request_id,fingerprint,workId,revisionId]);
         return {work_id:workId,revision_id:revisionId};
-      });
+      }).finally(()=>feedCache.clear());
     }
     if(action==='draft_list'){await requireUser(userId);return (await rows(db,'select id,version,body,updated_at,conflict_of from drafts where owner_id=$1 order by updated_at desc',[userId])).map(d=>({...d,body:jsonObject(d.body),updated_at:iso(d.updated_at)}));}
     if(action==='draft_save'){
@@ -218,10 +253,17 @@ export function createStore(db,options={}) {
     if(action==='moderate'){
       await requireUser(userId);if(!await one(db,'select 1 from moderators where user_id=$1',[userId]))fail('Нет доступа');if(!['hide','restore','dismiss'].includes(p.decision))fail('Некорректное решение');const reason=clean(p.reason,500);if(!reason||reason.length>500)fail('Укажите причину');
       const report=await one(db,'select * from reports where id=$1',[p.report_id]);if(!report)fail('Жалоба не найдена');
-      await db.transaction(async tx=>{if(p.decision!=='dismiss')await tx.query('update works set status=$1 where id=$2',[p.decision==='hide'?'hidden':'published',report.work_id]);await tx.query("update reports set status='resolved' where id=$1",[p.report_id]);await tx.query('insert into moderation_actions(id,moderator_id,report_id,decision,reason) values($1,$2,$3,$4,$5)',[randomUUID(),userId,p.report_id,p.decision,reason]);});return {ok:true};
+      await db.transaction(async tx=>{if(p.decision!=='dismiss')await tx.query('update works set status=$1 where id=$2',[p.decision==='hide'?'hidden':'published',report.work_id]);await tx.query("update reports set status='resolved' where id=$1",[p.report_id]);await tx.query('insert into moderation_actions(id,moderator_id,report_id,decision,reason) values($1,$2,$3,$4,$5)',[randomUUID(),userId,p.report_id,p.decision,reason]);});feedCache.clear();return {ok:true};
     }
     fail('Неизвестное действие');
   }
+  /** Raw preview bytes of a published revision. Revisions are immutable, so the id doubles as a permanent ETag. */
+  const previewImage = async revisionId => {
+    if(!uuid(revisionId)) return null;
+    const row=await one(db,"select r.preview from revisions r join works w on w.id=r.work_id where r.id=$1 and w.status='published' and r.preview is not null",[revisionId]);
+    const match=row?.preview.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/s);
+    return match?{type:match[1],bytes:Buffer.from(match[2],'base64'),etag:`"${revisionId}"`}:null;
+  };
   const dna=createDnaService(db,{requireUser,publish:(id,p)=>rpc(id,'publish',p,true)},options.dna);
-  return {db,rpc,dna,addUser,authenticate,createSession,sessionUser,revokeSession,close:()=>db.close()};
+  return {db,rpc,dna,previewImage,addUser,authenticate,createSession,sessionUser,revokeSession,close:()=>db.close()};
 }

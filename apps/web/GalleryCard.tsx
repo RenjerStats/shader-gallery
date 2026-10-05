@@ -1,12 +1,14 @@
 import {useEffect, useRef, useState, type CSSProperties} from 'react';
 import {Icon} from './Icon';
 import type {FeedWork} from './types';
+import {previewSrc} from './api';
 
 const accents = ['#7865f5', '#f08061', '#61a9e8', '#bd76e4', '#78bc9a', '#e4aa61'];
 const clamp = (value:number) => Math.max(0, Math.min(1, value));
 
 export function GalleryCard({work,index,onOpen,gyro}:{work:FeedWork;index:number;onOpen:()=>void;gyro:boolean}) {
   const ref=useRef<HTMLElement>(null);
+  const preview=previewSrc(work.revision);
   const [dragging,setDragging]=useState(false);
   const target=useRef({x:0,y:0,mx:.5,my:.5});
   const current=useRef({x:0,y:0,mx:.5,my:.5});
@@ -58,7 +60,7 @@ export function GalleryCard({work,index,onOpen,gyro}:{work:FeedWork;index:number
       onPointerDown={e=>{touch.current={x:e.clientX,y:e.clientY,moved:false};if(e.pointerType!=='mouse'&&e.isPrimary){setDragging(true);e.currentTarget.setPointerCapture(e.pointerId);point(e.clientX,e.clientY)}}}
       onPointerMove={e=>{if(dragging && Math.hypot(e.clientX-touch.current.x,e.clientY-touch.current.y)>8)touch.current.moved=true}}
       >
-      {work.revision.preview?<img src={work.revision.preview} alt="" loading="lazy"/>:<div className="card-fallback"/>}
+      {preview?<img src={preview} alt="" loading={index<2?'eager':'lazy'} fetchPriority={index<2?'high':'auto'} decoding="async"/>:<div className="card-fallback"/>}
       <div className="gallery-card-art-fade"/>
     </div>
     <span className="gallery-card-category">{work.category}</span>

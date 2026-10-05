@@ -2,6 +2,7 @@ import {useEffect, useRef} from 'react';
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type {FeedWork} from './types';
+import {previewSrc} from './api';
 import {wallTexture, floorTexture, ornamentTexture, plaqueTexture, signTexture, glowTexture, coneTexture, sheenTexture} from './virtualTextures';
 
 type Props = {
@@ -186,11 +187,11 @@ export function VirtualRoom({works, title, mode, focus, onFocusChange, onNearest
       matBoard.userData.index = i;
       group.add(matBoard);
 
-      const preview = work.revision.preview;
+      const preview = previewSrc(work.revision);
       const fallback = document.createElement('canvas');fallback.width=8;fallback.height=8;
       const fallbackContext=fallback.getContext('2d')!;
       const fallbackShade=fallbackContext.createLinearGradient(0,0,8,8);fallbackShade.addColorStop(0,'#6357c9');fallbackShade.addColorStop(1,'#10243b');fallbackContext.fillStyle=fallbackShade;fallbackContext.fillRect(0,0,8,8);
-      const artTexture=track(preview?new THREE.TextureLoader().load(preview):new THREE.CanvasTexture(fallback));
+      const artTexture=track(preview?new THREE.TextureLoader().setCrossOrigin('anonymous').load(preview):new THREE.CanvasTexture(fallback));
       artTexture.colorSpace=THREE.SRGBColorSpace;
       const artMat = track(new THREE.MeshBasicMaterial({map:artTexture}));
       const art = new THREE.Mesh(track(new THREE.PlaneGeometry(artW, artH)), artMat);

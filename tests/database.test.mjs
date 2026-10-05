@@ -155,3 +155,29 @@ test('a hundred works paginate without duplicates or shipping shader source',asy
     assert.ok(filtered.items.every(item=>item.category==='Свет' && item.title.includes('2')));
   }finally{await s.close()}
 });
+
+test('public feed is served from a short cache that publishing and moderation invalidate',async()=>{
+  const s=await createDatabase({memory:true});
+  try{
+    const a=await s.addUser({email:'cache@example.test',display_name:'Автор'});
+    assert.equal((await s.rpc(null,'feed',{lite:true})).items.length,0);
+    const first=await s.rpc(a.id,'publish',{...base,request_id:randomUUID(),preview:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='});
+    const feed=await s.rpc(null,'feed',{lite:true});
+    assert.equal(feed.items.length,1);
+    assert.deepEqual(feed.items[0].revision,{id:first.revision_id,has_preview:true});
+    assert.equal(await s.rpc(null,'feed',{lite:true}),feed,'a repeat within the window reuses the answer');
+    const second=await s.rpc(a.id,'publish',{...base,title:'Второй',request_id:randomUUID()});
+    const after=await s.rpc(null,'feed',{lite:true});
+    assert.equal(after.items.length,2);
+    assert.deepEqual(after.items[0].revision,{id:second.revision_id,has_preview:false});
+    const image=await s.previewImage(first.revision_id);
+    assert.equal(image.type,'image/png');
+    assert.equal(image.etag,`"${first.revision_id}"`);
+    assert.equal(await s.previewImage(second.revision_id),null);
+    assert.equal(await s.previewImage('not-a-uuid'),null);
+    const batch=await s.rpc(null,'batch',{requests:[{action:'feed',payload:{lite:true}},{action:'like',payload:{}}]});
+    assert.equal(batch.results[0].data.items.length,2);
+    assert.ok(batch.results[1].error);
+    await assert.rejects(s.rpc(null,'batch',{requests:[]}));
+  }finally{await s.close()}
+});

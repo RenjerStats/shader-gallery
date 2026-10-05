@@ -1,5 +1,5 @@
 .gallery-page { max-width: 1608px; padding-top: 26px; }
-.gallery-hero { position:relative;display:flex;align-items:center;min-height:390px;max-width:1520px;margin:0 auto 48px;overflow:hidden;padding:46px clamp(26px,4vw,60px);border:1px solid #ffffff27;border-radius:26px;background:linear-gradient(90deg,#09111ff2 0%,#0b1425d1 35%,#0b14253d 70%),url('./public/hero-opal-ribbon.png') center / cover no-repeat;box-shadow:0 28px 80px -45px #19203688;color:#f7f8fd; }
+.gallery-hero { position:relative;display:flex;align-items:center;min-height:390px;max-width:1520px;margin:0 auto 48px;overflow:hidden;padding:46px clamp(26px,4vw,60px);border:1px solid #ffffff27;border-radius:26px;background:linear-gradient(90deg,#09111ff2 0%,#0b1425d1 35%,#0b14253d 70%),url('./public/hero-opal-ribbon.jpg') center / cover no-repeat;box-shadow:0 28px 80px -45px #19203688;color:#f7f8fd; }
 .gallery-hero-content{position:relative;z-index:1;max-width:570px}
 .gallery-hero-art-credit{position:absolute;right:26px;bottom:21px;color:#ffffffbc;font-size:10px;letter-spacing:.14em;text-shadow:0 1px 8px #000a}
 .gallery-kicker { margin: 0 0 14px; color: var(--muted); font-size: .69rem; font-weight: 700; letter-spacing: .2em; }
