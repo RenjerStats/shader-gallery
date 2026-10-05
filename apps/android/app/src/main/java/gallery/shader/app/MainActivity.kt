@@ -1,758 +1,242 @@
 package gallery.shader.app
 
+import android.animation.ValueAnimator
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.drawable.Drawable
-import android.graphics.drawable.RippleDrawable
-import android.content.res.ColorStateList
-import android.view.Gravity
-import android.widget.ImageButton
-import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import android.net.Uri
-import android.opengl.GLES30
-import android.opengl.GLSurfaceView
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.Build
-import android.view.MotionEvent
+import android.view.Gravity
 import android.view.View
-import android.view.WindowInsets
-import android.view.WindowManager
-import android.widget.Button
-import android.widget.EditText
+import android.view.inputmethod.InputMethodManager
+import android.window.OnBackInvokedDispatcher
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.SeekBar
-import android.widget.Spinner
-import android.widget.ArrayAdapter
 import android.widget.TextView
-import java.net.URL
-import java.util.UUID
-import kotlin.math.roundToInt
 
+/**
+ * Shell of the app: three tabs (gallery, wallpaper, profile) under a Telegram-style bottom bar,
+ * with a single full-screen work page that slides over them.
+ */
 class MainActivity:Activity() {
-    private lateinit var gallerySection:LinearLayout
-    private lateinit var bottomBar:LinearLayout
-    private lateinit var backButton:ImageButton
-    private lateinit var brandMark:ImageView
-    private lateinit var toolbarTitle:TextView
-    private lateinit var saveButton:ImageButton
-    private lateinit var previewFrame:FrameLayout
-    private var detailOpen=false
-    private var workSaved=false
-    private var socialBusy=false
-    private var galleryScrollY=0
-    private lateinit var qualityPanel:LinearLayout
-    private lateinit var address:EditText
-    private lateinit var status:TextView
-    private lateinit var title:TextView
-    private lateinit var byline:TextView
-    private lateinit var controls:LinearLayout
-    private lateinit var rootScroll:ScrollView
-    private lateinit var detailSection:LinearLayout
-    private lateinit var galleryList:android.widget.GridLayout
-    private lateinit var gallerySignIn:Button
-    private lateinit var galleryStatus:TextView
-    private lateinit var authStatus:TextView
-    private lateinit var authButton:Button
-    private lateinit var socialPanel:LinearLayout
-    private lateinit var search:EditText
-    private lateinit var category:Spinner
-    private lateinit var more:Button
-    private lateinit var gyroButton:Button
-    private lateinit var newTab:Button
-    private lateinit var curatedTab:Button
-    private lateinit var followingTab:Button
-    private lateinit var savedTab:Button
-    private lateinit var preview:GalleryPreview
-    private lateinit var apply:Button
-    private var current:ShaderPackage?=null
-    private var values:MutableMap<String,String> = mutableMapOf()
-    private var ready=false
-    private var resumed=false
-    private var previewRunning=false
-    private var loadGeneration=0
-    private var gallerySource:String?=null
-    private var galleryMode="new"
-    private var galleryCursor:org.json.JSONObject?=null
-    private var galleryGeneration=0
-    private var galleryLoading=false
-    private var pullStartY:Float?=null
-    private var viewerId:String?=null
-    private var sessionGeneration=0
-    private val categories=listOf("Все категории","Абстракция","Природа","Геометрия","Свет","Другое")
-    private val visualPrefs by lazy {getSharedPreferences("gallery_visual",Context.MODE_PRIVATE)}
-    private val darkMode get()=visualPrefs.getBoolean("dark",false)
-    private var galleryGyro=false
-    private val gallerySensor by lazy {getSystemService(Context.SENSOR_SERVICE) as SensorManager}
-    private val rotationSensor by lazy {gallerySensor.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)}
-    private val gallerySensorListener=object:SensorEventListener {
-        override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int){}
-        override fun onSensorChanged(event:SensorEvent){
-            val matrix=FloatArray(9);val angles=FloatArray(3)
-            SensorManager.getRotationMatrixFromVector(matrix,event.values)
-            SensorManager.getOrientation(matrix,angles)
-            val x=(Math.toDegrees(angles[1].toDouble()).toFloat()*0.28f).coerceIn(-11f,11f)
-            val y=(Math.toDegrees(angles[2].toDouble()).toFloat()*0.28f).coerceIn(-11f,11f)
-            for(i in 0 until galleryList.childCount)(galleryList.getChildAt(i) as? GalleryTiltCard)?.setTilt(x,y)
-        }
-    }
-    private fun dp(n:Int)=(n*resources.displayMetrics.density).roundToInt()
-    private val ink get()=if(darkMode)Color.rgb(238,240,248) else Color.rgb(34,33,32)
-    private val muted get()=if(darkMode)Color.rgb(159,164,184) else Color.rgb(112,109,105)
-    private val paper get()=if(darkMode)Color.rgb(8,8,14) else Color.rgb(248,246,242)
-    private val blue get()=if(darkMode)Color.rgb(120,136,255) else Color.rgb(40,76,237)
-    private val line get()=if(darkMode)Color.rgb(48,49,61) else Color.rgb(229,228,220)
-    private val surface get()=if(darkMode)Color.rgb(24,25,34) else Color.rgb(255,254,250)
-    private val displayFont by lazy {resources.getFont(R.font.lora)}
-    private val bodyFont by lazy {resources.getFont(R.font.manrope)}
-    private val mediumFont by lazy {resources.getFont(R.font.manrope_medium)}
-    private fun rounded(fill:Int,stroke:Int=fill,radius:Int=18)=GradientDrawable().apply {shape=GradientDrawable.RECTANGLE;cornerRadius=dp(radius).toFloat();setColor(fill);setStroke(dp(1),stroke)}
-    private fun colorSwatch(color:Int)=RippleDrawable(ColorStateList.valueOf(0x14000000),android.graphics.drawable.InsetDrawable(rounded(color,line,16),dp(8)),null)
-    private fun text(value:String,size:Float=14f,color:Int=ink,serif:Boolean=false)=TextView(this).apply {text=value;textSize=size;setTextColor(color);typeface=if(serif)displayFont else bodyFont;setPadding(0,dp(7),0,dp(7));includeFontPadding=false}
-    private fun button(value:String,primary:Boolean=false,action:()->Unit)=Button(this).apply {
-        text=value;textSize=14f;isAllCaps=false;typeface=mediumFont
-        setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled),intArrayOf()),intArrayOf(muted,if(primary)Color.WHITE else ink)))
-        val buttonDrawable=android.graphics.drawable.StateListDrawable().apply {
-            addState(intArrayOf(-android.R.attr.state_enabled),rounded(if(primary)Color.rgb(90,92,105) else surface,line,16))
-            addState(intArrayOf(),rounded(if(primary)blue else surface,if(primary)blue else line,16))
-        }
-        background=RippleDrawable(ColorStateList.valueOf(0x14000000),buttonDrawable,null)
-        backgroundTintList=null;stateListAnimator=null;minHeight=dp(48);minimumWidth=0;minWidth=0
-        setPadding(dp(16),0,dp(16),0);setOnClickListener{action()}
-    }
-    private fun icon(name:String,label:String,action:()->Unit)=ImageButton(this).apply {
-        setImageDrawable(GalleryIcon(name,ink));contentDescription=label;setPadding(dp(13),dp(13),dp(13),dp(13))
-        background=RippleDrawable(ColorStateList.valueOf(0x18000000),null,rounded(surface,line,14));setOnClickListener{action()}
-    }
-    private fun row()=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(20),0,dp(20),dp(16))}
-    private fun card()=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL}
-    private fun reveal(view:View){
-        view.animate().cancel()
-        if(!android.animation.ValueAnimator.areAnimatorsEnabled()){view.alpha=1f;view.translationY=0f;return}
-        view.alpha=0f;view.translationY=dp(3).toFloat()
-        view.animate().alpha(1f).translationY(0f).setDuration(180).setInterpolator(android.view.animation.PathInterpolator(.2f,.7f,.2f,1f)).start()
-    }
-    private fun styleSlider(slider:SeekBar){slider.progressTintList=ColorStateList.valueOf(blue);slider.thumbTintList=ColorStateList.valueOf(blue);slider.progressBackgroundTintList=ColorStateList.valueOf(line);slider.minimumHeight=dp(48)}
-    override fun onCreate(savedInstanceState:Bundle?){
-        if(darkMode)setTheme(R.style.GalleryThemeDark)
+    internal lateinit var ui:Ui
+    lateinit var account:Account
+    internal lateinit var feed:FeedScreen
+    internal lateinit var work:WorkScreen
+    private lateinit var wallpaper:WallpaperScreen
+    private lateinit var profile:ProfileScreen
+    private lateinit var root:FrameLayout
+    private lateinit var shell:LinearLayout
+    private lateinit var frame:FrameLayout
+    private lateinit var nav:LinearLayout
+    private lateinit var snack:LinearLayout
+    private lateinit var snackText:TextView
+    private lateinit var snackAction:TextView
+    private val navIcons=mutableListOf<ImageView>()
+    private val navPills=mutableListOf<View>()
+    private val navLabels=mutableListOf<TextView>()
+    private val navNames=listOf("gallery","wallpaper","account")
+    private val navTitles=listOf("Галерея","Обои","Профиль")
+    private val handler=Handler(Looper.getMainLooper())
+    private val hideSnack=Runnable {snack.animate().alpha(0f).setDuration(160).withEndAction {snack.visibility=View.GONE}.start()}
+    private var tab=0
+    private var insets=Insets()
+    var resumedNow=false
+        private set
+
+    override fun onCreate(savedInstanceState:Bundle?) {
+        val night=Appearance.night(this)
+        setTheme(if(night)R.style.GalleryThemeDark else R.style.GalleryTheme)
         super.onCreate(savedInstanceState)
-        window.statusBarColor=paper;window.navigationBarColor=paper
-        window.decorView.systemUiVisibility=if(darkMode)0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-        val shell=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(paper)}
-        setContentView(shell)
-        shell.setOnApplyWindowInsetsListener { _,insets ->
-            val top=if(Build.VERSION.SDK_INT>=30)insets.getInsets(WindowInsets.Type.statusBars()).top else insets.systemWindowInsetTop
-            val bottom=if(Build.VERSION.SDK_INT>=30)insets.getInsets(WindowInsets.Type.navigationBars() or WindowInsets.Type.ime()).bottom else insets.systemWindowInsetBottom
-            shell.setPadding(0,top,0,bottom);insets
-        }
-        shell.requestApplyInsets()
-        if(Build.VERSION.SDK_INT>=33)onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT){if(detailOpen)showGallery() else finish()}
-        val toolbar=LinearLayout(this).apply {gravity=Gravity.CENTER_VERTICAL;setPadding(dp(8),0,dp(8),0)}
-        backButton=icon("back","Назад в галерею"){showGallery()}.apply {visibility=View.GONE}
-        toolbar.addView(backButton,LinearLayout.LayoutParams(dp(48),dp(48)))
-        brandMark=ImageView(this).apply {setImageDrawable(GalleryIcon("brand",ink));setPadding(dp(6),dp(10),dp(8),dp(10));importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO}
-        toolbar.addView(brandMark,LinearLayout.LayoutParams(dp(42),dp(48)))
-        toolbarTitle=text("Shader Gallery",20f,ink,true).apply {setSingleLine(true);ellipsize=android.text.TextUtils.TruncateAt.END}
-        toolbar.addView(toolbarTitle,LinearLayout.LayoutParams(0,-2,1f))
-        saveButton=icon("bookmark","Сохранить работу"){current?.let {socialAction("save",org.json.JSONObject().put("work_id",it.workId).put("active",!workSaved),it)}}.apply {visibility=View.GONE}
-        toolbar.addView(saveButton,LinearLayout.LayoutParams(dp(48),dp(48)))
-        val account=icon("account","Аккаунт"){showAccount()}
-        toolbar.addView(account,LinearLayout.LayoutParams(dp(48),dp(48)))
-        toolbar.addView(icon("settings","Настройки отображения"){showVisualSettings()},LinearLayout.LayoutParams(dp(48),dp(48)))
-        shell.addView(toolbar,LinearLayout.LayoutParams(-1,dp(56)))
-        status=text("",13f,muted).apply {visibility=View.GONE;setPadding(dp(20),dp(6),dp(20),dp(6));accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE}
-        status.addTextChangedListener(object:android.text.TextWatcher {
-            override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){}
-            override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){status.visibility=if(s.isNullOrBlank())View.GONE else View.VISIBLE}
-            override fun afterTextChanged(s:android.text.Editable?){}
-        })
-        shell.addView(status)
-        rootScroll=object:ScrollView(this){
-            override fun dispatchTouchEvent(event:MotionEvent):Boolean {
-                if(detailOpen)pullStartY=null
-                else if(event.actionMasked==MotionEvent.ACTION_DOWN)pullStartY=if(scrollY==0)event.y else null
-                val handled=super.dispatchTouchEvent(event)
-                if(event.actionMasked==MotionEvent.ACTION_UP){
-                    val start=pullStartY;pullStartY=null
-                    if(start!=null && scrollY==0 && event.y-start>dp(90) && !galleryLoading)loadGallery(false,true)
-                }else if(event.actionMasked==MotionEvent.ACTION_CANCEL)pullStartY=null
-                return handled
+        ui=Ui(this)
+        account=Account(this)
+        root=FrameLayout(this).apply {setBackgroundColor(ui.p.paper)}
+        setContentView(root)
+        edgeToEdge(night)
+        root.setOnApplyWindowInsetsListener {_,windowInsets->insets=readInsets(windowInsets);applyInsets();windowInsets}
+
+        val saved=PackageStore.gallerySource(this)
+        account.use(if(saved==null || saved=="http://127.0.0.1:4173")GalleryClient.SITE else saved)
+
+        feed=FeedScreen(this);wallpaper=WallpaperScreen(this);profile=ProfileScreen(this);work=WorkScreen(this)
+        shell=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL}
+        frame=FrameLayout(this).apply {addView(feed.view,-1,-1);addView(wallpaper.view,-1,-1);addView(profile.view,-1,-1)}
+        shell.addView(frame,LinearLayout.LayoutParams(-1,0,1f))
+        shell.addView(buildNav(),LinearLayout.LayoutParams(-1,-2))
+        root.addView(shell,FrameLayout.LayoutParams(-1,-1))
+        root.addView(work.view,FrameLayout.LayoutParams(-1,-1))
+        buildSnack()
+        selectTab(0)
+        if(savedInstanceState==null)handleIntent(intent)
+        if(Build.VERSION.SDK_INT>=33)onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT){goBack()}
+        root.requestApplyInsets()
+    }
+
+    private fun buildNav():View {
+        val p=ui.p
+        nav=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(p.surface)}
+        nav.addView(ui.divider(),LinearLayout.LayoutParams(-1,1))
+        val row=LinearLayout(this)
+        navNames.forEachIndexed {index,name->
+            val item=LinearLayout(this).apply {
+                orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;background=ui.ripple(null);isClickable=true;isFocusable=true
+                contentDescription=navTitles[index];setPadding(0,ui.dp(8),0,ui.dp(8))
             }
-        }.apply {isFillViewport=true;isVerticalScrollBarEnabled=false}
-        val content=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL}
-        rootScroll.addView(content);shell.addView(rootScroll,LinearLayout.LayoutParams(-1,0,1f))
-        address=EditText(this).apply {hint="Адрес галереи или ссылка";setSingleLine(true);inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI;textSize=14f}
-        authStatus=text("Гость");authButton=button("Войти"){if(viewerId==null)showAuthDialog() else signOut()}
-        gallerySection=row();content.addView(gallerySection);buildGallery(gallerySection)
-        detailSection=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;visibility=View.GONE};content.addView(detailSection)
-        previewFrame=FrameLayout(this).apply {background=rounded(paper,paper,24);clipToOutline=true}
-        val previewHeight=(resources.configuration.screenHeightDp*.49f).roundToInt().coerceIn(250,440)
-        detailSection.addView(previewFrame,LinearLayout.LayoutParams(-1,dp(previewHeight)))
-        preview=GalleryPreview(this){ok,message->runOnUiThread{ready=ok;apply.isEnabled=ok;status.text=if(ok)"" else message}}
-        previewFrame.addView(preview,FrameLayout.LayoutParams(-1,-1))
-        val pause=icon(if(preview.isPaused)"play" else "pause",if(preview.isPaused)"Включить движение" else "Приостановить движение"){}
-        pause.background=RippleDrawable(ColorStateList.valueOf(0x14000000),android.graphics.drawable.InsetDrawable(rounded(surface,surface,18),dp(6)),null)
-        pause.setPadding(dp(15),dp(15),dp(15),dp(15))
-        pause.setOnClickListener {preview.setPaused(!preview.isPaused);pause.setImageDrawable(GalleryIcon(if(preview.isPaused)"play" else "pause",ink));pause.contentDescription=if(preview.isPaused)"Включить движение" else "Приостановить движение"}
-        previewFrame.addView(pause,FrameLayout.LayoutParams(dp(48),dp(48),Gravity.TOP or Gravity.END).apply {topMargin=dp(12);rightMargin=dp(12)})
-        val caption=row().apply {setPadding(dp(20),dp(40),dp(20),dp(16));background=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(Color.TRANSPARENT,Color.argb(235,Color.red(paper),Color.green(paper),Color.blue(paper)),paper))}
-        title=text("",24f,ink,true).apply {maxLines=3;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,0,0,dp(5))};caption.addView(title)
-        byline=text("",12f,muted).apply {setPadding(0,0,0,0)};caption.addView(byline);previewFrame.addView(caption,FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM))
-        controls=row();detailSection.addView(controls)
-        socialPanel=row();qualityPanel=row();buildQuality()
-        val detailActions=row().apply {orientation=LinearLayout.HORIZONTAL}
-        detailActions.addView(button("Обсуждение"){showPanel("Обсуждение",socialPanel)},LinearLayout.LayoutParams(0,dp(48),1f))
-        detailActions.addView(button("Качество"){showPanel("Качество обоев",qualityPanel)},LinearLayout.LayoutParams(0,dp(48),1f))
-        detailActions.addView(button("Поделиться"){shareWork()},LinearLayout.LayoutParams(0,dp(48),1f))
-        detailSection.addView(detailActions)
-        bottomBar=row().apply {visibility=View.GONE;setPadding(dp(20),dp(10),dp(20),dp(12))}
-        apply=button("Установить обои",true){installWallpaper()}.apply {isEnabled=false}
-        bottomBar.addView(apply,LinearLayout.LayoutParams(-1,dp(54)));shell.addView(bottomBar)
-        val savedSource=PackageStore.gallerySource(this)
-        gallerySource=if(savedSource==null || savedSource=="http://127.0.0.1:4173")GalleryClient.SITE else savedSource
-        if(savedSource!=gallerySource)PackageStore.setGallerySource(this,GalleryClient.SITE)
-        gallerySource?.let {address.setText(it)}
-        PackageStore.selected(this)?.let {showPackage(it,false)}
-        handleIntent(intent)
-        gallerySource?.let {loadSession(it);loadGallery(false)}
+            val pill=FrameLayout(this)
+            val icon=ImageView(this)
+            pill.addView(icon,FrameLayout.LayoutParams(ui.dp(24),ui.dp(24),Gravity.CENTER))
+            val label=ui.text(navTitles[index],12f,p.muted,ui.sansSemi,1)
+            item.addView(pill,LinearLayout.LayoutParams(ui.dp(64),ui.dp(32)))
+            item.addView(label,LinearLayout.LayoutParams(-2,-2).apply {topMargin=ui.dp(3)})
+            item.setOnClickListener {if(index==tab && index==0)feed.scrollToTop() else selectTab(index)}
+            navIcons+=icon;navPills+=pill;navLabels+=label
+            row.addView(item,LinearLayout.LayoutParams(0,ui.dp(68),1f))
+        }
+        nav.addView(row)
+        return nav
     }
-    private fun showAccount(){
-        val id=viewerId ?: run {showAuthDialog();return}
-        val source=gallerySource ?: GalleryClient.SITE
-        val dialog=AlertDialog.Builder(this).setTitle("Мой кабинет").setMessage(authStatus.text)
-            .setPositiveButton("Открыть профиль"){_,_->startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("$source/profile/$id")))}
-            .setNeutralButton("Выйти"){_,_->signOut()}.setNegativeButton("Закрыть",null).show()
-        Thread {
-            val profile=try{GalleryClient.rpc(this,source,"profile",org.json.JSONObject().put("id",id))}catch(_:Exception){null}
-            runOnUiThread {
-                if(dialog.isShowing && viewerId==id && gallerySource==source && profile!=null){
-                    val name=profile.optString("display_name").ifBlank {authStatus.text.toString()}
-                    val handle=profile.optString("username").takeIf {it.isNotBlank()}?.let {"@$it"} ?: ""
-                    val bio=profile.optString("bio")
-                    dialog.setMessage(listOf(name,handle,bio).filter {it.isNotBlank()}.joinToString("\n"))
-                }
+
+    fun selectTab(index:Int) {
+        tab=index
+        val p=ui.p
+        feed.view.visibility=if(index==0)View.VISIBLE else View.GONE
+        wallpaper.view.visibility=if(index==1)View.VISIBLE else View.GONE
+        profile.view.visibility=if(index==2)View.VISIBLE else View.GONE
+        navNames.forEachIndexed {i,name->
+            val active=i==index
+            navIcons[i].setImageDrawable(ui.icon(name,if(active)p.link else p.muted))
+            navPills[i].background=if(active)ui.shape(p.soft,100f) else null
+            navLabels[i].setTextColor(if(active)p.link else p.muted)
+            navLabels[i].isSelected=active
+        }
+        if(index==1)wallpaper.refresh()
+        (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(root.windowToken,0)
+    }
+
+    fun showFeed(mode:String) {selectTab(0);feed.showMode(mode)}
+    fun setFeedGrid(grid:Boolean){feed.setGrid(grid)}
+    fun libraryChanged(){feed.onLibraryChanged()}
+
+    private fun buildSnack() {
+        val p=ui.p
+        snackText=ui.text("",14f,p.onInverse,ui.sansMedium).apply {setLineSpacing(0f,1.15f)}
+        snackAction=ui.text("",14f,if(p.night)0xff3d4fd0.toInt() else 0xffb7c2ff.toInt(),ui.sansSemi).apply {setPadding(ui.dp(16),ui.dp(12),0,ui.dp(12));isClickable=true}
+        snack=LinearLayout(this).apply {
+            gravity=Gravity.CENTER_VERTICAL;background=ui.shape(p.inverse,16f);setPadding(ui.dp(16),ui.dp(6),ui.dp(12),ui.dp(6));elevation=ui.dpf(8f);visibility=View.GONE
+            minimumHeight=ui.dp(48)
+            addView(snackText,LinearLayout.LayoutParams(0,-2,1f));addView(snackAction)
+        }
+        root.addView(snack,FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM).apply {setMargins(ui.dp(12),0,ui.dp(12),0)})
+    }
+
+    /** A short message above the bottom bar; [action] adds a button such as "Повторить". */
+    fun toast(message:String,action:String?=null,onAction:()->Unit={}) {
+        handler.removeCallbacks(hideSnack)
+        snackText.text=message
+        snackAction.visibility=if(action==null)View.GONE else View.VISIBLE
+        snackAction.text=action ?: ""
+        snackAction.setOnClickListener {handler.removeCallbacks(hideSnack);hideSnack.run();onAction()}
+        snack.animate().cancel()
+        snack.visibility=View.VISIBLE;snack.alpha=0f;snack.translationY=ui.dpf(12f)
+        snack.animate().alpha(1f).translationY(0f).setDuration(if(ValueAnimator.areAnimatorsEnabled())180 else 0).start()
+        snack.announceForAccessibility(message)
+        handler.postDelayed(hideSnack,if(action!=null)5500 else 3200)
+    }
+
+    private fun applyInsets() {
+        shell.setPadding(insets.left,insets.top,insets.right,0)
+        val keyboard=insets.ime>0
+        nav.setPadding(0,0,0,insets.bottom)
+        nav.visibility=if(keyboard)View.GONE else View.VISIBLE
+        frame.setPadding(0,0,0,insets.ime)
+        work.applyInsets(insets)
+        val above=when {
+            work.view.visibility==View.VISIBLE->ui.dp(84)+insets.bottomPad
+            keyboard->insets.ime+ui.dp(12)
+            else->ui.dp(68)+insets.bottom+ui.dp(12)
+        }
+        (snack.layoutParams as FrameLayout.LayoutParams).bottomMargin=above
+        snack.requestLayout()
+    }
+
+    fun openWork(source:String,id:String,revision:String?,card:GalleryCard?) {
+        val base=try{GalleryClient.base(source)}catch(e:Exception){toast(friendly(e,"Некорректный адрес"));return}
+        if(base!=account.source)account.use(base)
+        work.open(base,id,revision,card)
+        if(work.view.visibility!=View.VISIBLE) {
+            work.view.visibility=View.VISIBLE
+            if(ValueAnimator.areAnimatorsEnabled()) {
+                work.view.alpha=0f;work.view.translationX=ui.dpf(28f)
+                work.view.animate().alpha(1f).translationX(0f).setDuration(220).start()
             }
-        }.start()
-    }
-    private fun showVisualSettings(){
-        AlertDialog.Builder(this).setTitle("Оформление галереи")
-            .setSingleChoiceItems(arrayOf("Светлая тема","Тёмная тема"),if(darkMode)1 else 0){dialog,which->
-                dialog.dismiss();if(darkMode!=(which==1)){visualPrefs.edit().putBoolean("dark",which==1).apply();recreate()}
-            }
-            .setNeutralButton("Вариант B · эксперимент"){_,_->
-                AlertDialog.Builder(this).setTitle("Вариант B")
-                    .setMessage("3D-зал пока доступен только в отдельном экспериментальном макете.")
-                    .setPositiveButton("Понятно",null).show()
-            }.setNegativeButton("Закрыть",null).show()
-    }
-    private fun startGalleryGyro(){rotationSensor?.let {gallerySensor.registerListener(gallerySensorListener,it,SensorManager.SENSOR_DELAY_UI)}}
-    private fun showPanel(label:String,panel:LinearLayout){
-        (panel.parent as? android.view.ViewGroup)?.removeView(panel)
-        val scroll=ScrollView(this).apply {addView(panel)}
-        AlertDialog.Builder(this).setTitle(label).setView(scroll).setPositiveButton("Готово",null).show()
-    }
-    private fun shareWork(){val shader=current ?: return;val source=gallerySource ?: return
-        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {type="text/plain";putExtra(Intent.EXTRA_TEXT,"$source/works/${shader.workId}?revision=${shader.revisionId}")},"Поделиться"))
-    }
-    private fun showGallery(){
-        if(galleryGyro)startGalleryGyro()
-        brandMark.visibility=View.VISIBLE;toolbarTitle.textSize=20f
-        loadGeneration++;detailOpen=false;detailSection.visibility=View.GONE;bottomBar.visibility=View.GONE;backButton.visibility=View.GONE;saveButton.visibility=View.GONE;gallerySection.visibility=View.VISIBLE;status.text=""
-        if(previewRunning){preview.stop();previewRunning=false};window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        rootScroll.post {rootScroll.scrollTo(0,galleryScrollY)}
-    }
-    @Deprecated("Platform back callback")
-    override fun onBackPressed(){if(detailOpen)showGallery() else super.onBackPressed()}
-    private fun buildQuality(){
-        fun setting(label:String,options:List<String>,selected:Int,onSelect:(Int)->Unit){
-            qualityPanel.addView(text(label,15f))
-            val picker=Spinner(this).apply {adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,options);setSelection(selected)}
-            picker.onItemSelectedListener=object:android.widget.AdapterView.OnItemSelectedListener{
-                override fun onItemSelected(parent:android.widget.AdapterView<*>?,view:View?,position:Int,id:Long){onSelect(position)}
-                override fun onNothingSelected(parent:android.widget.AdapterView<*>?){}
-            };qualityPanel.addView(picker,LinearLayout.LayoutParams(-1,dp(48)))
+            work.onShown()
         }
-        setting("Разрешение",listOf("50% · экономное","75% · сбалансированное","100% · полное"),when(PackageStore.quality(this)){0.5f->0;1f->2;else->1}){PackageStore.setQuality(this,floatArrayOf(.5f,.75f,1f)[it]);preview.requestRender()}
-        setting("Частота кадров",listOf("15 FPS","30 FPS","60 FPS"),when(PackageStore.fps(this)){15->0;60->2;else->1}){PackageStore.setFps(this,intArrayOf(15,30,60)[it])}
+        applyInsets()
     }
-    override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);handleIntent(intent)}
-    private fun buildGallery(content:LinearLayout){
-        content.addView(text("SHADER GALLERY · ИСКУССТВО КОДА",10f,muted).apply {letterSpacing=.18f;setPadding(0,dp(23),0,dp(7))})
-        content.addView(text("Галерея живой\nграфики",32f,ink,true).apply {setPadding(0,0,0,dp(5))})
-        content.addView(text("Шейдеры, визуальные эксперименты и миры, созданные кодом.",13f,muted).apply {setPadding(0,0,0,dp(13))})
-        content.addView(button("Создать с DNA Studio"){openDna()},LinearLayout.LayoutParams(-1,dp(46)).apply {bottomMargin=dp(19)})
-        val tabs=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
-        newTab=button("Новое"){galleryMode="new";updateTabs();loadGallery(false)}
-        curatedTab=button("Подборка"){galleryMode="curated";updateTabs();loadGallery(false)}
-        followingTab=button("Подписки"){galleryMode="following";updateTabs();loadGallery(false)}
-        savedTab=button("Сохранённое"){galleryMode="saved";updateTabs();loadGallery(false)}
-        listOf(newTab,curatedTab,followingTab,savedTab).forEach {tab->tab.textSize=12f;tab.typeface=mediumFont;tab.setPadding(dp(16),0,dp(16),0);tabs.addView(tab,LinearLayout.LayoutParams(-2,dp(40)).apply {rightMargin=dp(7)})}
-        content.addView(HorizontalScrollView(this).apply {isHorizontalScrollBarEnabled=false;addView(tabs)});updateTabs()
-        val filters=LinearLayout(this).apply {gravity=Gravity.CENTER_VERTICAL}
-        search=EditText(this).apply {hint="Поиск шейдеров, тегов и авторов";contentDescription="Поиск по названию или тегу";setSingleLine(true);setTextColor(ink);setHintTextColor(muted);textSize=13f;background=rounded(surface,line,16);setPadding(dp(16),0,dp(16),0);imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH;setOnEditorActionListener {_,_,_->submitSearch();true}}
-        filters.addView(search,LinearLayout.LayoutParams(0,dp(48),1f))
-        filters.addView(icon("search","Найти работы"){submitSearch()},LinearLayout.LayoutParams(dp(48),dp(48)))
-        content.addView(filters,LinearLayout.LayoutParams(-1,-2).apply {topMargin=dp(14)})
-        category=Spinner(this).apply {adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,categories)}
-        category.onItemSelectedListener=object:android.widget.AdapterView.OnItemSelectedListener{
-            override fun onItemSelected(parent:android.widget.AdapterView<*>?,view:View?,position:Int,id:Long){if(::galleryStatus.isInitialized && gallerySource!=null)loadGallery(false)}
-            override fun onNothingSelected(parent:android.widget.AdapterView<*>?){}
-        }
-        content.addView(category,LinearLayout.LayoutParams(-1,dp(48)).apply {topMargin=dp(4)})
-        gyroButton=button("Покрутить карточки"){galleryGyro=!galleryGyro;gyroButton.text=if(galleryGyro)"Выключить наклон" else "Покрутить карточки";if(galleryGyro){if(rotationSensor==null){galleryGyro=false;gyroButton.text="Гироскоп недоступен"}else startGalleryGyro()}else{gallerySensor.unregisterListener(gallerySensorListener);for(i in 0 until galleryList.childCount)(galleryList.getChildAt(i) as? GalleryTiltCard)?.resetTilt()}}
-        gyroButton.textSize=12f;content.addView(gyroButton,LinearLayout.LayoutParams(-2,dp(40)).apply {topMargin=dp(10);bottomMargin=dp(8)})
-        galleryStatus=text("Потяните вниз, чтобы обновить галерею.",13f,muted).apply {accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE};content.addView(galleryStatus)
-        gallerySignIn=button("Войти"){showAuthDialog()}.apply {visibility=View.GONE};content.addView(gallerySignIn,LinearLayout.LayoutParams(-1,dp(48)))
-        galleryList=android.widget.GridLayout(this).apply {columnCount=if(resources.configuration.screenWidthDp>=700 && resources.configuration.fontScale<1.4f)2 else 1};content.addView(galleryList)
-        more=button("Показать ещё"){loadGallery(true)}.apply {visibility=View.GONE};content.addView(more,LinearLayout.LayoutParams(-1,dp(48)).apply {topMargin=dp(16)})
+
+    fun closeWork() {
+        if(work.view.visibility!=View.VISIBLE)return
+        work.view.animate().cancel()
+        work.view.visibility=View.GONE;work.view.alpha=1f;work.view.translationX=0f
+        work.onHidden();applyInsets()
     }
-    private fun submitSearch(){(getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(search.windowToken,0);search.clearFocus();loadGallery(false)}
-    private fun updateTabs(){
-        listOf("new" to newTab,"curated" to curatedTab,"following" to followingTab,"saved" to savedTab).forEach {(mode,tab)->
-            val active=galleryMode==mode;tab.isSelected=active;tab.setTextColor(if(active)ink else muted)
-            tab.background=RippleDrawable(ColorStateList.valueOf(0x18000000),rounded(if(active)if(darkMode)Color.rgb(38,43,74) else Color.rgb(233,235,255) else surface,if(active)blue else line,22),null)
-        }
-    }
-    private fun loadSession(source:String){
-        val generation=++sessionGeneration
-        viewerId=null
-        authStatus.text="Проверяем аккаунт…"
-        Thread {
-            try {
-                val id=GalleryClient.session(this,source)
-                val name=if(id!=null)GalleryClient.rpc(this,source,"profile",org.json.JSONObject().put("id",id)).optString("display_name") else null
-                runOnUiThread {
-                    if(generation!=sessionGeneration || gallerySource!=source)return@runOnUiThread
-                    viewerId=id;authStatus.text=name ?: "Гость";authButton.text=if(id==null)"Войти" else "Выйти"
-                    if(galleryMode=="saved" || galleryMode=="following")loadGallery(false)
-                    current?.let {loadDetail(it)}
-                }
-            }catch(e:Exception){runOnUiThread {if(generation==sessionGeneration){viewerId=null;authStatus.text="Гость";authButton.text="Войти"}}}
-        }.start()
-    }
-    private fun showAuthDialog(){
-        val source=gallerySource ?: GalleryClient.SITE
-        gallerySource=source;PackageStore.setGallerySource(this,source)
-        val fields=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(8),dp(20),dp(12))}
-        val tabs=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
-        var signingUp=false
-        val email=EditText(this).apply {hint="Электронная почта";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;setSingleLine(true);setAutofillHints(View.AUTOFILL_HINT_EMAIL_ADDRESS)}
-        val password=EditText(this).apply {hint="Пароль";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD;setSingleLine(true);setAutofillHints(View.AUTOFILL_HINT_PASSWORD)}
-        val name=EditText(this).apply {hint="Имя";setSingleLine(true);visibility=View.GONE;setAutofillHints(View.AUTOFILL_HINT_NAME)}
-        lateinit var dialog:AlertDialog
-        val submit=button("Войти по почте",true){
-            val enteredName=if(signingUp)name.text.toString() else null
-            dialog.dismiss();authenticate(source,email.text.toString(),password.text.toString(),enteredName)
-        }
-        val loginTab=button("Вход"){}
-        val signupTab=button("Регистрация"){}
-        fun update(){
-            name.visibility=if(signingUp)View.VISIBLE else View.GONE
-            submit.text=if(signingUp)"Зарегистрироваться" else "Войти по почте"
-            loginTab.isSelected=!signingUp;signupTab.isSelected=signingUp
-            loginTab.setTextColor(if(signingUp)muted else blue)
-            signupTab.setTextColor(if(signingUp)blue else muted)
-        }
-        loginTab.setOnClickListener {signingUp=false;update()}
-        signupTab.setOnClickListener {signingUp=true;update()}
-        tabs.addView(loginTab,LinearLayout.LayoutParams(0,dp(48),1f))
-        tabs.addView(signupTab,LinearLayout.LayoutParams(0,dp(48),1f))
-        fields.addView(tabs);fields.addView(name);fields.addView(email);fields.addView(password)
-        fields.addView(submit,LinearLayout.LayoutParams(-1,dp(50)).apply {topMargin=dp(12)})
-        if(GalleryClient.isCloud(source)){
-            fields.addView(text("или",13f,muted).apply {gravity=Gravity.CENTER},LinearLayout.LayoutParams(-1,dp(42)))
-            fields.addView(button("Продолжить с Google"){
-                try {val target=GalleryClient.googleUrl(this);dialog.dismiss();startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(target)))}
-                catch(e:Exception){status.text=e.message ?: "Не удалось открыть Google"}
-            },LinearLayout.LayoutParams(-1,dp(50)))
-            fields.addView(text("При регистрации по почте подтвердите адрес по ссылке из письма.",12f,muted),LinearLayout.LayoutParams(-1,-2).apply {topMargin=dp(10)})
-        }
-        update()
-        dialog=AlertDialog.Builder(this).setTitle("Аккаунт Shader Gallery").setView(fields).setNegativeButton("Отмена",null).create()
-        dialog.show()
-    }
-    private fun authenticate(source:String,email:String,password:String,name:String?){
-        if(email.isBlank() || password.length<8 || (name!=null && name.isBlank())){status.text="Укажите почту и пароль от 8 символов";return}
-        authStatus.text=if(name==null)"Входим…" else "Регистрируем…"
-        Thread {
-            try {
-                val id=if(name==null)GalleryClient.signIn(this,source,email,password) else GalleryClient.signUp(this,source,email,password,name)
-                runOnUiThread {if(gallerySource==source){
-                    if(id==null){viewerId=null;authStatus.text="Гость";status.text="Проверьте почту и подтвердите регистрацию по ссылке из письма."}
-                    else {viewerId=id;authStatus.text=if(name==null)email else name;authButton.text="Выйти";status.text="";loadGallery(false);current?.let{loadDetail(it)}}
-                }}
-            }catch(e:Exception){runOnUiThread{authStatus.text="Гость";status.text=e.message ?: "Не удалось войти"}}
-        }.start()
-    }
-    private fun signOut(){
-        val source=gallerySource ?: return
-        Thread {
-            try{GalleryClient.signOut(this,source)}catch(_:Exception){}
-            runOnUiThread{viewerId=null;authStatus.text="Гость";authButton.text="Войти";if(galleryMode=="saved"||galleryMode=="following"){galleryMode="new";updateTabs()};loadGallery(false);current?.let{loadDetail(it)}}
-        }.start()
-    }
-    private fun loadGallery(next:Boolean,preserve:Boolean=false){
-        val source=gallerySource ?: try{GalleryClient.base(address.text.toString()).also{gallerySource=it;PackageStore.setGallerySource(this,it)}}catch(e:Exception){galleryStatus.text=e.message ?: "Укажите адрес галереи";return}
-        if(next && (galleryLoading || galleryCursor==null))return
-        if(!next){galleryGeneration++;galleryCursor=null;if(!preserve)galleryList.removeAllViews();more.visibility=View.GONE}
-        gallerySignIn.visibility=View.GONE
-        if((galleryMode=="following" || galleryMode=="saved") && viewerId==null){galleryLoading=false;galleryStatus.visibility=View.VISIBLE;galleryStatus.text="Войдите, чтобы увидеть эти работы.";gallerySignIn.visibility=View.VISIBLE;return}
-        val generation=galleryGeneration
-        val cursor=if(next)galleryCursor else null
-        val mode=galleryMode
-        val query=search.text.toString()
-        val selectedCategory=category.selectedItem.toString().takeUnless{it==categories[0]} ?: ""
-        galleryLoading=true
-        galleryStatus.visibility=View.VISIBLE;galleryStatus.text="Загружаем работы…"
-        more.isEnabled=false
-        Thread {
-            try {
-                val page=GalleryClient.feed(this,source,mode,query,selectedCategory,cursor)
-                runOnUiThread {
-                    if(generation!=galleryGeneration)return@runOnUiThread
-                    galleryLoading=false
-                    galleryCursor=page.nextCursor
-                    if(!next && preserve)galleryList.removeAllViews()
-                    val existing=(0 until galleryList.childCount).mapNotNull { galleryList.getChildAt(it).tag as? String }.toSet()
-                    page.items.filterNot {it.id in existing}.forEach {
-                        val index=galleryList.childCount;val columns=galleryList.columnCount
-                        galleryList.addView(galleryCard(it),android.widget.GridLayout.LayoutParams(android.widget.GridLayout.spec(index/columns),android.widget.GridLayout.spec(index%columns)).apply {
-                            width=dp((resources.configuration.screenWidthDp-40-(columns-1)*12)/columns);height=-2;topMargin=dp(16);if(index%columns>0)leftMargin=dp(12)
-                        })
-                    }
-                    galleryStatus.text=if(galleryList.childCount==0)"Работ пока нет. Попробуйте другой запрос." else ""
-                    galleryStatus.visibility=if(galleryList.childCount==0)View.VISIBLE else View.GONE
-                    more.visibility=if(galleryCursor!=null)View.VISIBLE else View.GONE
-                    more.isEnabled=true
-                }
-            } catch(e:Exception){runOnUiThread {
-                if(generation!=galleryGeneration)return@runOnUiThread
-                galleryLoading=false
-                galleryStatus.visibility=View.VISIBLE;galleryStatus.text=if(e is java.net.SocketTimeoutException)"Время ожидания истекло. Потяните вниз, чтобы повторить." else e.message ?: "Не удалось загрузить галерею"
-                more.visibility=if(next)View.VISIBLE else View.GONE
-                more.isEnabled=true
-            }}
-        }.start()
-    }
-    private inner class GalleryTiltCard(context:Context):FrameLayout(context) {
-        var image:ImageView?=null
-        fun setTilt(x:Float,y:Float){
-            rotationX=x;rotationY=y
-            image?.translationX=-y*dp(1).toFloat()
-            image?.translationY=x*dp(1).toFloat()
-        }
-        fun resetTilt(){
-            animate().rotationX(0f).rotationY(0f).setDuration(320).start()
-            image?.animate()?.translationX(0f)?.translationY(0f)?.setDuration(320)?.start()
-        }
-    }
-    private fun galleryCard(work:GalleryCard):View {
-        val card=GalleryTiltCard(this).apply {tag=work.id;contentDescription="Открыть работу ${work.title}";isClickable=true;isFocusable=true;setOnClickListener {load(gallerySource ?: return@setOnClickListener,work.id,work.revisionId)};elevation=dp(8).toFloat();cameraDistance=dp(1200).toFloat()}
-        val columns=galleryList.columnCount
-        val artSize=(resources.configuration.screenWidthDp-40-(columns-1)*12)/columns
-        val accent=when(work.category){"Природа"->Color.rgb(96,172,139);"Геометрия"->Color.rgb(108,139,238);"Свет"->Color.rgb(235,153,106);else->Color.rgb(140,112,230)}
-        val backing=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(Color.argb(if(darkMode)50 else 28,Color.red(accent),Color.green(accent),Color.blue(accent)),surface,surface)).apply {cornerRadius=dp(26).toFloat();setStroke(dp(1),line)}
-        card.background=backing;card.clipToOutline=true
-        val inner=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;clipChildren=false;setPadding(dp(20),0,dp(20),dp(18))}
-        card.addView(inner,FrameLayout.LayoutParams(-1,-2))
-        val art=FrameLayout(this).apply {clipChildren=true;clipToPadding=true}
-        val image=ImageView(this).apply {work.thumbnail()?.let {setImageBitmap(it)};scaleType=ImageView.ScaleType.CENTER_CROP;background=rounded(accent,accent,20);scaleX=1.12f;scaleY=1.12f}
-        card.image=image
-        art.addView(image,FrameLayout.LayoutParams(-1,-1))
-        art.addView(View(this).apply {background=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(Color.TRANSPARENT,Color.TRANSPARENT,surface))},FrameLayout.LayoutParams(-1,-1))
-        art.setOnTouchListener(object:View.OnTouchListener {
-            var startX=0f;var startY=0f;var moved=false
-            override fun onTouch(view:View,event:MotionEvent):Boolean {
-                when(event.actionMasked){
-                    MotionEvent.ACTION_DOWN->{startX=event.x;startY=event.y;moved=false;return true}
-                    MotionEvent.ACTION_MOVE->{
-                        if(kotlin.math.abs(event.x-startX)>dp(7)||kotlin.math.abs(event.y-startY)>dp(7))moved=true
-                        if(moved){card.animate().cancel();image.animate().cancel();card.setTilt((.5f-(event.y/view.height))*26f,((event.x/view.width)-.5f)*26f)}
-                        return true
-                    }
-                    MotionEvent.ACTION_UP->{if(!moved)card.performClick();card.resetTilt();return true}
-                    MotionEvent.ACTION_CANCEL->{card.resetTilt();return true}
-                };return false
-            }
-        })
-        inner.addView(art,LinearLayout.LayoutParams(-1,dp(if(columns==1)260 else 230)).apply {leftMargin=-dp(20);rightMargin=-dp(20)})
-        val heading=LinearLayout(this).apply {gravity=Gravity.CENTER_VERTICAL}
-        heading.addView(text(work.title,22f,ink,true).apply {maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,0,0,0)},LinearLayout.LayoutParams(0,-2,1f))
-        heading.addView(text(work.createdAt.take(4),10f,muted).apply {letterSpacing=.12f})
-        heading.translationZ=dp(16).toFloat();inner.addView(heading)
-        inner.addView(text(work.description.ifBlank {"Работа в категории «${work.category}»"},12f,muted).apply {maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,dp(5),0,dp(13))})
-        val foot=LinearLayout(this).apply {gravity=Gravity.CENTER_VERTICAL}
-        foot.addView(text(work.tags.firstOrNull() ?: work.category,11f,muted).apply {maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;background=rounded(if(darkMode)Color.rgb(36,37,47) else Color.rgb(245,245,243),line,18);setPadding(dp(12),dp(7),dp(12),dp(7))},LinearLayout.LayoutParams(0,-2,1f))
-        foot.addView(View(this),LinearLayout.LayoutParams(0,1,1f))
-        foot.addView(button("Открыть"){load(gallerySource ?: return@button,work.id,work.revisionId)},LinearLayout.LayoutParams(-2,dp(42)))
-        foot.translationZ=dp(14).toFloat();inner.addView(foot)
-        inner.addView(text("by ${work.author}",11f,muted).apply {setPadding(0,dp(18),0,0)})
-        return card
-    }
-    private fun handleIntent(intent:Intent?){
-        val uri=intent?.data ?: return
-        if(uri.scheme=="shadergallery" && uri.host=="auth-callback"){
-            val code=uri.getQueryParameter("code")
-            val error=uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error")
-            if(code==null){status.text=error ?: "Не удалось завершить вход";return}
-            gallerySource=GalleryClient.SITE;PackageStore.setGallerySource(this,GalleryClient.SITE);address.setText(GalleryClient.SITE)
-            authStatus.text="Входим…"
-            Thread {
-                try {GalleryClient.completeGoogle(this,code);runOnUiThread {loadSession(GalleryClient.SITE);loadGallery(false)}}
-                catch(e:Exception){runOnUiThread {authStatus.text="Гость";status.text=e.message ?: "Не удалось завершить вход"}}
-            }.start()
-            return
-        }
-        if(uri.scheme=="shadergallery" && uri.host=="work"){
-            val id=uri.pathSegments.firstOrNull() ?: return
-            val source=uri.getQueryParameter("source")?.let{if(it=="https://renjerstats.github.io")GalleryClient.SITE else it} ?: return
-            load(source,id,uri.getQueryParameter("revision"));return
-        }
-        if(uri.scheme=="https" && uri.host=="renjerstats.github.io" && uri.pathSegments.size==3 && uri.pathSegments[0]=="shader-gallery" && uri.pathSegments[1]=="works"){
-            load(GalleryClient.SITE,uri.pathSegments[2],uri.getQueryParameter("revision"))
-        }
-    }
-    private fun loadFromAddress(){
-        try {
-            val url=URL(address.text.toString().trim());val uri=Uri.parse(url.toString())
-            val cloud=url.host.equals("renjerstats.github.io",true)
-            val source=GalleryClient.base(if(cloud)GalleryClient.SITE else "${url.protocol}://${url.authority}")
-            val segments=if(cloud){require(uri.pathSegments.firstOrNull()=="shader-gallery"){"Некорректная ссылка"};uri.pathSegments.drop(1)}else uri.pathSegments
-            if(segments.isEmpty()){
-                val changed=gallerySource!=source
-                gallerySource=source;PackageStore.setGallerySource(this,source);address.setText(source);if(changed)loadSession(source);loadGallery(false)
-            }else{
-                require(segments.size==2 && segments[0]=="works") { "Укажите адрес галереи или ссылку /works/…" }
-                address.setText(source)
-                load(source,segments[1],uri.getQueryParameter("revision"))
-            }
-        }catch(e:Exception){status.text=e.message ?: "Некорректная ссылка"}
-    }
-    private fun load(source:String,id:String,revision:String?){
-        val base=try{GalleryClient.base(source)}catch(e:Exception){status.text=e.message ?: "Некорректный адрес";return}
-        val sourceChanged=base!=gallerySource
-        gallerySource=base;PackageStore.setGallerySource(this,base);address.setText(base)
-        if(sourceChanged)loadSession(base)
-        val request=++loadGeneration
-        val previousReady=ready
-        workSaved=false;saveButton.isEnabled=false
-        ready=false;apply.isEnabled=false;status.text="Загружаем работу…"
-        Thread {
-            try {val shader=PackageClient.download(this,base,id,revision);runOnUiThread {if(request==loadGeneration){showPackage(shader,true);if(sourceChanged)loadGallery(false)}}}
-            catch(e:Exception){runOnUiThread{if(request==loadGeneration){ready=previousReady;apply.isEnabled=previousReady;saveButton.isEnabled=current!=null;status.text=e.message ?: "Не удалось открыть работу"}}}
-        }.start()
-    }
-    private fun showPackage(shader:ShaderPackage,fromNetwork:Boolean){
-        gallerySensor.unregisterListener(gallerySensorListener)
-        brandMark.visibility=View.GONE;toolbarTitle.textSize=18f
-        if(!detailOpen)galleryScrollY=rootScroll.scrollY
-        detailOpen=true;gallerySection.visibility=View.GONE;detailSection.visibility=View.VISIBLE;bottomBar.visibility=View.VISIBLE;backButton.visibility=View.VISIBLE;saveButton.visibility=View.VISIBLE
-        saveButton.isEnabled=false;saveButton.setImageDrawable(GalleryIcon("bookmark",ink));saveButton.contentDescription="Сохранить работу"
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        if(resumed && !previewRunning){preview.start();previewRunning=true}
-        current=shader;values=PackageStore.values(this,shader);title.text=shader.title;byline.text=shader.authorName
-        buildControls(shader);reveal(controls);preview.setShader(shader,values.toMap());status.text="Загружаем превью…";loadDetail(shader)
-        rootScroll.post {rootScroll.scrollTo(0,0)}
-    }
-    private fun buildControls(shader:ShaderPackage){
-        controls.removeAllViews()
-        for(parameter in shader.parameters){
-            val heading=LinearLayout(this).apply {gravity=Gravity.CENTER_VERTICAL}
-            val label=text(parameter.label,15f,ink,true);heading.addView(label,LinearLayout.LayoutParams(0,-2,1f))
-            val output=text("",12f,muted)
-            if(parameter.type=="float")heading.addView(output)
-            heading.addView(icon("reset","Сбросить: ${parameter.label}"){values[parameter.name]=parameter.defaultValue;changed(shader);buildControls(shader)},LinearLayout.LayoutParams(dp(48),dp(48)))
-            controls.addView(heading)
-            if(parameter.type=="float"){
-                val value=values[parameter.name]?.toFloatOrNull() ?: parameter.defaultValue.toFloat()
-                output.text="%.2f".format(value)
-                val slider=SeekBar(this).apply {max=100;progress=((value-parameter.min)/(parameter.max-parameter.min)*100).roundToInt().coerceIn(0,100);styleSlider(this);contentDescription=parameter.label}
-                controls.addView(slider,LinearLayout.LayoutParams(-1,dp(44)))
-                slider.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{
-                    override fun onProgressChanged(view:SeekBar?,progress:Int,fromUser:Boolean){if(fromUser){val v=parameter.min+(parameter.max-parameter.min)*progress/100f;values[parameter.name]=v.toString();output.text="%.2f".format(v);changed(shader)}}
-                    override fun onStartTrackingTouch(view:SeekBar?){};override fun onStopTrackingTouch(view:SeekBar?){}
-                })
-            }else{
-                val color=Color.parseColor(values[parameter.name] ?: parameter.defaultValue)
-                val hsv=FloatArray(3);Color.colorToHSV(color,hsv)
-                val colorRow=LinearLayout(this).apply {gravity=Gravity.CENTER_VERTICAL}
-                val swatch=button(""){editColor(shader,parameter.name,parameter.label)}.apply {
-                    contentDescription="Выбрать точный цвет: ${parameter.label}"
-                    background=colorSwatch(color)
-                }
-                val hue=SeekBar(this).apply {
-                    max=360;progress=hsv[0].roundToInt();contentDescription="Оттенок: ${parameter.label}";splitTrack=false
-                    setPadding(dp(12),0,dp(12),0)
-                    progressTintList=null;progressBackgroundTintList=null;thumbTintList=null
-                    progressDrawable=GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xffff7777.toInt(),0xffffff77.toInt(),0xff77ff99.toInt(),0xff77ddff.toInt(),0xff7777ff.toInt(),0xffff77dd.toInt(),0xffff7777.toInt())).apply {cornerRadius=dp(9).toFloat();setSize(dp(200),dp(14))}
-                    thumb=GradientDrawable().apply {shape=GradientDrawable.OVAL;setColor(color);setStroke(dp(3),Color.WHITE);setSize(dp(24),dp(24))}
-                    setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{
-                        override fun onProgressChanged(view:SeekBar?,progress:Int,fromUser:Boolean){if(fromUser){hsv[0]=progress.toFloat();val selected=Color.HSVToColor(hsv);values[parameter.name]="#%06x".format(selected and 0xffffff);(thumb as GradientDrawable).setColor(selected);swatch.background=colorSwatch(selected);changed(shader)}}
-                        override fun onStartTrackingTouch(view:SeekBar?){};override fun onStopTrackingTouch(view:SeekBar?){}
-                    })
-                }
-                colorRow.addView(hue,LinearLayout.LayoutParams(0,dp(48),1f));colorRow.addView(swatch,LinearLayout.LayoutParams(dp(48),dp(48)).apply {leftMargin=dp(8)})
-                controls.addView(colorRow)
-            }
-        }
-    }
-    private fun editColor(shader:ShaderPackage,name:String,label:String){
-        val original=Color.parseColor(values[name] ?: "#ffffff")
-        val channels=intArrayOf(Color.red(original),Color.green(original),Color.blue(original))
-        val panel=row();val sample=View(this).apply {background=rounded(original)};panel.addView(sample,LinearLayout.LayoutParams(-1,dp(54)))
-        listOf("Красный","Зелёный","Синий").forEachIndexed {index,channel->
-            panel.addView(text(channel,13f,muted));panel.addView(SeekBar(this).apply {max=255;progress=channels[index];styleSlider(this);contentDescription=channel;setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{
-                override fun onProgressChanged(view:SeekBar?,progress:Int,fromUser:Boolean){channels[index]=progress;sample.background=rounded(Color.rgb(channels[0],channels[1],channels[2]))}
-                override fun onStartTrackingTouch(view:SeekBar?){};override fun onStopTrackingTouch(view:SeekBar?){}
-            })},LinearLayout.LayoutParams(-1,dp(48)))
-        }
-        AlertDialog.Builder(this).setTitle(label).setView(panel).setPositiveButton("Применить"){_,_->values[name]="#%02x%02x%02x".format(channels[0],channels[1],channels[2]);changed(shader);buildControls(shader)}.setNegativeButton("Отмена",null).show()
-    }
-    private fun loadDetail(shader:ShaderPackage){
-        val source=gallerySource ?: return
-        socialPanel.removeAllViews();socialPanel.addView(text("Загружаем обсуждение…",13f,muted))
-        Thread {
-            try {
-                val detail=GalleryClient.rpc(this,source,"work",org.json.JSONObject().put("id",shader.workId).put("revision_id",shader.revisionId))
-                runOnUiThread {if(current?.revisionId==shader.revisionId && gallerySource==source)renderSocial(detail,shader)}
-            }catch(_:Exception){runOnUiThread{if(current?.revisionId==shader.revisionId){socialPanel.removeAllViews();socialPanel.addView(text("Обсуждение доступно при подключении к галерее.",13f,muted))}}}
-        }.start()
-    }
-    private fun renderSocial(detail:org.json.JSONObject,shader:ShaderPackage){
-        socialPanel.removeAllViews()
-        socialPanel.addView(button("Использовать в DNA Studio"){openDna(shader)},LinearLayout.LayoutParams(-1,dp(48)))
-        detail.getJSONObject("work").getJSONObject("revision").optJSONObject("dna_origin")?.optJSONArray("references")?.let {refs->
-            socialPanel.addView(text("Референсы Shader DNA",16f,ink,true))
-            for(i in 0 until refs.length()){val ref=refs.getJSONObject(i)
-                socialPanel.addView(button("${ref.getString("title")} · ${ref.getString("author")}"){
-                    startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("${gallerySource ?: GalleryClient.SITE}/works/${ref.getString("work_id")}?revision=${ref.getString("revision_id")}")))
-                })
-            }
-        }
-        val work=detail.getJSONObject("work")
-        val author=work.getJSONObject("author")
-        val reactions=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
-        val liked=work.optBoolean("liked")
-        val saved=work.optBoolean("saved")
-        workSaved=saved;saveButton.isEnabled=true;saveButton.setImageDrawable(GalleryIcon(if(saved)"saved" else "bookmark",ink));saveButton.contentDescription=if(saved)"Удалить из сохранённого" else "Сохранить работу"
-        reactions.addView(button("${if(liked)"Нравится вам" else "Нравится"} · ${work.optInt("likes_count")}") {socialAction("like",org.json.JSONObject().put("work_id",shader.workId).put("active",!liked),shader)},LinearLayout.LayoutParams(0,dp(46),1f))
-        reactions.addView(button(if(saved)"Сохранено" else "Сохранить") {socialAction("save",org.json.JSONObject().put("work_id",shader.workId).put("active",!saved),shader)},LinearLayout.LayoutParams(0,dp(46),1f).apply {leftMargin=dp(8)})
-        socialPanel.addView(reactions,LinearLayout.LayoutParams(-1,-2).apply {topMargin=dp(10)})
-        if(viewerId!=work.optString("author_id")){
-            val following=author.optBoolean("is_following")
-            socialPanel.addView(button(if(following)"Отписаться от автора" else "Подписаться на автора") {socialAction("follow",org.json.JSONObject().put("author_id",work.getString("author_id")).put("active",!following),shader)},LinearLayout.LayoutParams(-1,dp(46)).apply {topMargin=dp(9)})
-        }
-        val comments=detail.getJSONArray("comments")
-        socialPanel.addView(text("Комментарии · ${comments.length()}",18f,ink,true).apply {setPadding(0,dp(18),0,dp(8))})
-        if(comments.length()==0)socialPanel.addView(text("Пока нет комментариев.",13f,muted))
-        for(index in maxOf(0,comments.length()-30) until comments.length()){
-            val comment=comments.getJSONObject(index)
-            socialPanel.addView(text(comment.getJSONObject("author").getString("display_name"),13f,ink).apply {typeface=Typeface.DEFAULT_BOLD})
-            socialPanel.addView(text(comment.getString("body"),13f,muted).apply {setPadding(0,0,0,dp(10))})
-        }
-        val input=EditText(this).apply {hint="Ваш комментарий";minLines=2;maxLines=4;setTextColor(ink);textSize=14f;background=rounded(Color.WHITE,line,12);setPadding(dp(12),dp(9),dp(12),dp(9))}
-        socialPanel.addView(input,LinearLayout.LayoutParams(-1,-2).apply {topMargin=dp(10)})
-        var pendingBody=""
-        var pendingRequestId=""
-        socialPanel.addView(button("Отправить",true) {
-            val body=input.text.toString().trim()
-            if(body.isNotEmpty()){
-                if(body!=pendingBody){pendingBody=body;pendingRequestId=UUID.randomUUID().toString()}
-                socialAction("comment",org.json.JSONObject().put("work_id",shader.workId).put("request_id",pendingRequestId).put("body",body),shader)
-            }
-        },LinearLayout.LayoutParams(-1,dp(46)).apply {topMargin=dp(8)})
-    }
-    private fun socialAction(action:String,payload:org.json.JSONObject,shader:ShaderPackage){
-        if(viewerId==null){showAuthDialog();return}
-        if(socialBusy)return
-        val source=gallerySource ?: return
-        socialBusy=true;saveButton.isEnabled=false
-        status.text="Сохраняем…"
-        Thread {
-            try{GalleryClient.rpc(this,source,action,payload);runOnUiThread {socialBusy=false;status.text="";loadDetail(shader);if(action=="save" || action=="follow")loadGallery(false)}}
-            catch(e:Exception){runOnUiThread{socialBusy=false;saveButton.isEnabled=true;status.text=e.message ?: "Не удалось сохранить"}}
-        }.start()
-    }
-    private fun changed(shader:ShaderPackage){PackageStore.saveValues(this,shader,values);preview.setValues(values.toMap())}
-    private fun openDna(shader:ShaderPackage?=null){
-        if(viewerId==null){showAuthDialog();return}
-        startActivity(Intent(this,DnaStudioActivity::class.java).putExtra("source",gallerySource ?: GalleryClient.SITE)
+
+    fun openDna(shader:ShaderPackage?) {
+        if(account.checking){toast("Проверяем аккаунт. Попробуйте ещё раз через секунду.");return}
+        if(!account.signedIn){AuthSheet.show(this,"Войдите, чтобы создавать работы в DNA Studio.") {openDna(shader)};return}
+        startActivity(Intent(this,DnaStudioActivity::class.java).putExtra("source",account.source)
             .putExtra("work_id",shader?.workId).putExtra("revision_id",shader?.revisionId))
     }
-    private fun installWallpaper(){val shader=current ?: return;if(!ready)return;PackageStore.saveValues(this,shader,values);PackageStore.select(this,shader);val intent=Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,ComponentName(this,GalleryWallpaperService::class.java));try{startActivity(intent)}catch(e:Exception){status.text="Не удалось открыть системный экран обоев: ${e.message}"}}
-    override fun onResume(){super.onResume();resumed=true;if(galleryGyro && !detailOpen)startGalleryGyro();if(current!=null && detailOpen){window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);if(::preview.isInitialized && !previewRunning){preview.start();previewRunning=true}}}
-    override fun onPause(){resumed=false;gallerySensor.unregisterListener(gallerySensorListener);if(previewRunning){preview.stop();previewRunning=false};window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);super.onPause()}
-}
 
-internal class GalleryPreview(context:Activity,private val onStatus:(Boolean,String)->Unit):GLSurfaceView(context),GLSurfaceView.Renderer,SensorEventListener {
-    private val handler=Handler(Looper.getMainLooper())
-    private val sensorManager=context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-    private val sensor=sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-    @Volatile private var pending:ShaderPackage?=null
-    @Volatile private var values:Map<String,String> = emptyMap()
-    @Volatile private var tilt=floatArrayOf(0f,0f,0f)
-    @Volatile private var mouse=floatArrayOf(0f,0f,0f,0f)
-    private var program:ShaderProgram?=null
-    private var active:ShaderPackage?=null
-    private var running=false
-    @Volatile var isPaused=!android.animation.ValueAnimator.areAnimatorsEnabled()
-        private set
-    private val tick=object:Runnable{override fun run(){if(running && !isPaused){requestRender();handler.postDelayed(this,33)}}}
-    init{setEGLContextClientVersion(3);setRenderer(this);renderMode=RENDERMODE_WHEN_DIRTY}
-    fun setShader(shader:ShaderPackage,values:Map<String,String>){this.values=values;pending=shader;requestRender()}
-    fun setValues(values:Map<String,String>){this.values=values;requestRender()}
-    fun snapshot(callback:(String?)->Unit){queueEvent {
-        val image=try {
-            val w=width;val h=height
-            require(w>0 && h>0 && w.toLong()*h<=8_000_000)
-            val currentProgram=program ?: error("Превью недоступно")
-            currentProgram.draw(w,h,PackageStore.quality(context),values,tilt,mouse)
-            val buffer=java.nio.ByteBuffer.allocateDirect(w*h*4)
-            GLES30.glReadPixels(0,0,w,h,GLES30.GL_RGBA,GLES30.GL_UNSIGNED_BYTE,buffer)
-            val bitmap=android.graphics.Bitmap.createBitmap(w,h,android.graphics.Bitmap.Config.ARGB_8888)
-            buffer.rewind();bitmap.copyPixelsFromBuffer(buffer)
-            val edge=160f/maxOf(w,h);val scaled=android.graphics.Bitmap.createScaledBitmap(bitmap,maxOf(1,(w*edge).toInt()),maxOf(1,(h*edge).toInt()),true)
-            val flipped=android.graphics.Bitmap.createBitmap(scaled,0,0,scaled.width,scaled.height,android.graphics.Matrix().apply {postScale(1f,-1f)},true)
-            val output=java.io.ByteArrayOutputStream();flipped.compress(android.graphics.Bitmap.CompressFormat.JPEG,65,output)
-            if(flipped!==scaled)flipped.recycle();if(scaled!==bitmap)scaled.recycle();bitmap.recycle()
-            "data:image/jpeg;base64,"+android.util.Base64.encodeToString(output.toByteArray(),android.util.Base64.NO_WRAP)
-        }catch(_:Exception){null}
-        post{callback(image)}
-    }}
-    fun start(){onResume();running=true;handler.removeCallbacks(tick);handler.post(tick);if(sensor!=null && !isPaused)sensorManager.registerListener(this,sensor,SensorManager.SENSOR_DELAY_GAME)}
-    fun setPaused(paused:Boolean){isPaused=paused;handler.removeCallbacks(tick);sensorManager.unregisterListener(this);if(running && !paused){handler.post(tick);if(sensor!=null)sensorManager.registerListener(this,sensor,SensorManager.SENSOR_DELAY_GAME)};requestRender()}
-    fun stop(){running=false;handler.removeCallbacks(tick);sensorManager.unregisterListener(this);onPause()}
-    override fun onSurfaceCreated(gl:javax.microedition.khronos.opengles.GL10?,config:javax.microedition.khronos.egl.EGLConfig?){program=null;active?.let{pending=it}}
-    override fun onSurfaceChanged(gl:javax.microedition.khronos.opengles.GL10?,width:Int,height:Int){GLES30.glViewport(0,0,width,height)}
-    override fun onDrawFrame(gl:javax.microedition.khronos.opengles.GL10?){
-        pending?.let { shader ->
-            pending=null
-            try{val replacement=ShaderProgram(shader);replacement.create();program?.destroy();program=replacement;active=shader;post{onStatus(true,"Готово к установке")}}
-            catch(e:Exception){post{onStatus(false,"Ошибка шейдера: ${e.message}")}}
-        }
-        GLES30.glClearColor(0.04f,0.03f,0.08f,1f);GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-        if(isPaused)program?.pause() else program?.resume()
-        program?.draw(width,height,PackageStore.quality(context),values,tilt,mouse)
+    fun launchWallpaperPicker() {
+        val intent=Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,ComponentName(this,GalleryWallpaperService::class.java))
+        try{startActivity(intent)} catch(e:Exception){toast("Не удалось открыть экран обоев: ${e.message}")}
     }
-    override fun onTouchEvent(event:MotionEvent):Boolean{mouse=floatArrayOf(event.x/width,1f-event.y/height,if(event.action==MotionEvent.ACTION_DOWN||event.action==MotionEvent.ACTION_MOVE)1f else 0f,0f);requestRender();return true}
-    override fun onSensorChanged(event:SensorEvent){val matrix=FloatArray(9);val angles=FloatArray(3);SensorManager.getRotationMatrixFromVector(matrix,event.values);SensorManager.getOrientation(matrix,angles);tilt=floatArrayOf(angles[2],angles[1],angles[0])}
-    override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int){}
+
+    override fun onNewIntent(intent:Intent) {super.onNewIntent(intent);setIntent(intent);handleIntent(intent)}
+
+    private fun handleIntent(intent:Intent?) {
+        val uri=intent?.data ?: return
+        if(uri.scheme=="shadergallery" && uri.host=="auth-callback") {
+            val code=uri.getQueryParameter("code")
+            val error=uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error")
+            if(code==null){toast(error ?: "Не удалось завершить вход");return}
+            account.use(GalleryClient.SITE)
+            account.completeGoogle(code) {failure->toast(failure ?: "Вы вошли в аккаунт")}
+            return
+        }
+        if(uri.scheme=="shadergallery" && uri.host=="work") {
+            val id=uri.pathSegments.firstOrNull() ?: return
+            val source=uri.getQueryParameter("source")?.let {if(it=="https://renjerstats.github.io")GalleryClient.SITE else it} ?: return
+            openWork(source,id,uri.getQueryParameter("revision"),null);return
+        }
+        if(uri.scheme=="https" && uri.host=="renjerstats.github.io" && uri.pathSegments.size==3 && uri.pathSegments[0]=="shader-gallery" && uri.pathSegments[1]=="works") {
+            openWork(GalleryClient.SITE,uri.pathSegments[2],uri.getQueryParameter("revision"),null)
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig:Configuration) {
+        super.onConfigurationChanged(newConfig)
+        feed.onConfigurationChanged();work.applyLayout();root.requestApplyInsets()
+    }
+
+    private fun goBack() {
+        when {
+            work.view.visibility==View.VISIBLE->closeWork()
+            tab!=0->selectTab(0)
+            else->finish()
+        }
+    }
+
+    @Suppress("OVERRIDE_DEPRECATION","DEPRECATION")
+    override fun onBackPressed(){goBack()}
+
+    override fun onResume(){super.onResume();resumedNow=true;work.onResume()}
+    override fun onPause(){resumedNow=false;work.onPause();super.onPause()}
 }
